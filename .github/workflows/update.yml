@@ -2,7 +2,7 @@ name: update-site
 
 on:
   schedule:
-    - cron: "17 */6 * * *"   # 每 6 小時（UTC），台灣時間約 02:17/08:17/14:17/20:17
+    - cron: "7 0-15 * * *"   # UTC 0-15 點每小時＝台灣時間 08:07～23:07 每小時，深夜停跑
   workflow_dispatch:
   push:
     branches: [master]

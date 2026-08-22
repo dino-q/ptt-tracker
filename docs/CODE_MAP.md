@@ -72,7 +72,7 @@
 
 - `scripts/build_site.py`：♻️ 調用 server.py 的 run_task/run_hot 產 `site/data/*.json`（Actions 與本機都能跑）。
 - `site/index.html`：唯讀靜態頁（省錢優惠＋熱門文章），部署在 https://dino-q.github.io/ptt-tracker/
-- `.github/workflows/update.yml`：每 6 小時 cron＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
+- `.github/workflows/update.yml`：台灣 08–23 點每小時 cron（深夜停跑）＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
 
 ## 排程
 
