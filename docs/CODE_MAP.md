@@ -68,6 +68,12 @@
 | `POST /api/export` | （舊）結果索引匯出 TXT；UI 已改用 /api/download |
 | `POST /api/tracks` | 新增/更新/刪除追蹤項 |
 
+## 線上版（GitHub Pages，詳見 GIT_PUBLISH.md）
+
+- `scripts/build_site.py`：♻️ 調用 server.py 的 run_task/run_hot 產 `site/data/*.json`（Actions 與本機都能跑）。
+- `site/index.html`：唯讀靜態頁（省錢優惠＋熱門文章），部署在 https://dino-q.github.io/ptt-tracker/
+- `.github/workflows/update.yml`：每 6 小時 cron＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
+
 ## 排程
 
 - `PTT_Assistant_DailyCache`：每日 08:30 `pythonw server.py --refresh-only` 更新 auto 追蹤項快取（電池模式也跑）。詳見 `路徑相依_搬移前必讀.md`。
