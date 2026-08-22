@@ -98,3 +98,51 @@
 **Nice-to-have（14）**
 取消狀態 UI 未處理且丟棄已抓結果、tracks.json 非原子寫入＋讀失敗靜默回 default、`/api/tracks` lost update、handler 無總 try/except（實測 export 壞 payload 直接斷線無回應）、`/api/run` 零型別驗證（字串 queries 逐字元搜尋、pages/days/delay 無上限）、`days=0` 語意反轉、fillForm/readForm 不能無損來回（週末 note 消失、search_pages/max_body_reads 被寫死）、cancel 未知 job 假成功、item.url 未白名單就 fetch/塞 href、board 未約束＋over18 擋頁誤報成板名錯誤、`/api/jobs` 持鎖寫 socket、cancel 無「取消中」回饋、`log_message` 的 `args[1]`、內文讀取失敗未計數。
 （另：CODE_MAP 小落差、大寫板名別名殘留、日期不明文章放行，見「附帶觀察」。）
+
+---
+
+# 複審 2026-08-22（Angus 第二輪）
+
+範圍：只驗「修法本身有沒有到位、有沒有引入新問題」。方法：讀改動段落 ＋ 對 8877 上跑的修後 server 黑箱實測 ＋ 隔離測 tracks 原子寫入 ＋ 另起 8973 測埠衝突（測完已清）。
+先確認測的是新 code：8877 目前的 listener 是 PID 38408、啟動時間 17:00:24，晚於 `server.py`(16:59:55) 與 `web/index.html`(16:59:07) 的 mtime；`GET /` 回來的 HTML 含 `POLL_FAILS` 與「已有掃描進行中」→ Playwright 那兩支測到的確實是修後版本。
+
+## Blocker 驗收
+
+- ✅ **B1 重複啟動掃描** — index.html:385 `if (JOB) return` ＋ 389 `clearInterval(POLL)` ＋ 390 `POLL_FAILS = 0`。timer 洩漏路徑消失（新舊 interval 不會並存），`tests/verify_guard.py` 用行為斷言（出現「已有掃描進行中」、btn-run disabled、原掃描仍完成 N 篇）守住回歸。**但守衛不是同步的，留 R1。**
+- ✅ **B2 埠重複綁定** — server.py:667-675 自訂 `Server(allow_reuse_address = False)` ＋ `OSError` 友善中文訊息 ＋ `SystemExit(1)`。實測：
+  - 第二個實例 → 「啟動失敗：port 8973 已被占用…（[WinError 10048]…）」＋ exit code 1；
+  - `netstat -ano | grep 8973.*LISTENING` 只 1 筆（修前實測同一支開 3 次會有 3 筆 LISTENING）；8877 同樣只 1 筆；
+  - 硬砍 process 後**立刻**重綁成功並回 200 → Windows 上沒有引入「關掉要等 TIME_WAIT 才能重開」的回歸。
+  - `PTT工具.bat` 網頁分支已補 `set "ERR=%errorlevel%"` ＋ 錯誤提示 ＋ `pause`（CRLF 59 行 / LF-only 0，UTF-8 無 BOM，chcp 仍在中文輸出之前）→ 啟動失敗不再一閃就關。
+  - 附註（非問題）：`allow_reuse_address = False` 在 Linux/WSL 上會讓「關掉再馬上開」撞約 60 秒 EADDRINUSE。本專案是 Windows 專用（bat + venv），現在無影響，但哪天搬環境要記得。
+- ✅ **B3 輪詢靜默吞沒** — index.html:424-432 連續失敗計數（≥5 次 ≈ 4.5s）或訊息含 `not found|404` 立即 `clearInterval` ＋ 恢復 btn-run/btn-cancel ＋ 顯示「與伺服器失聯…」。實測 `GET /api/jobs/deadbeef` 仍回 `{"error": "job not found"}`（404）→ 正則吃得到，server 關掉時 fetch reject 也會走計數路徑。**顯示位置與判定方式留 R2/R3。**
+
+## 其他修法驗收
+
+- ✅ **handler 總 try/except** — server.py:536-556。實測 `POST /api/export {"results":["abc"]}` 從「連線直接斷、無回應（curl 000）」變成 `500 {"error": "伺服器錯誤：結果格式不正確，沒有可匯出的項目"}`；`export_results_txt` 另加 `isinstance(r, dict)` 過濾（466-469）。**排除 BrokenPipe/ConnectionAborted/ConnectionReset 這三種再送 500 的做法是對的**——那正是「header 已送出」的情境，避免在同一條連線疊第二份 response。
+  - 小建議（非阻擋）：那個 ValueError 屬於使用者輸入問題，回 400 比 500 貼切。
+- ✅ **tracks.json 原子寫入＋壞檔備份** — server.py:125-152。隔離實測（Python 3.14.2 venv）：首次自動建立、存檔 reload 正常、**無 .tmp 殘留**、`with_suffix(".json.tmp")` 路徑解析正確；壞 JSON 與 0-byte 兩種都會 rename 成 `tracks.json.bak` ＋ console 警告 ＋ 回預設，下次啟動自動重建乾淨檔。`.gitignore` 也一併收了 `tracks.json.bak` / `*.json.tmp`。
+- ✅ **/api/jobs 鎖內快照** — server.py:585-599：鎖內只組 dict（`log` 切片複製、`progress` 用 `dict()` 複製），`json.dumps` 與 socket write 都移到鎖外 → 慢速 client 不再擋住 worker 的 job_log/progress。`results` 雖仍是同一個 list 物件，但 worker 是一次性寫入且寫完不再變更（424-427），實務安全。
+- ✅ **days 標示** — index.html:226「只看最近幾天（0＝不限）」，語意不再反著猜。
+- ✅ **weekend 旗標** — index.html:289/349/364：改由 `fillForm` 記錄 `WEEKEND_FLAG`，開頁載入內建週末追蹤項後直接按「開始掃描」不再把 note 洗掉。**留 R4（黏性）。**
+- ✅ **git** — root commit `3a762cb`，working tree clean，`.gitignore` 含 `.venv/ output/ tracks.json tracks.json.bak *.json.tmp config.json tests/screenshots/`；tracks.json 不入庫是對的（預設值在程式碼裡，重建不會掉東西）。現在有可回滾點了。
+
+## 殘留（4 項，皆非阻擋）
+
+- ⚠️ **R1 `runTask` 的守衛不是同步的** — **web/index.html:385 vs 391/394**。`JOB` 與 `btn-run.disabled` 都在 `await post("/api/run")` **之後**才設，空窗期內第二次點擊仍會通過 `if (JOB)` 並建立第二個 job → 舊 job 變成**取消不到的孤兒**（會繼續打 PTT 到跑完）。影響已比修前小（timer 不再洩漏、UI 不會卡死），本機空窗只有數 ms，但 server 正在爬蟲、多條 thread 競爭時會拉長；`verify_guard.py` 測的是人類速度的點擊，測不到這條。2 行修法：進 `try` 前先 `$("btn-run").disabled = true`，並加 `STARTING` 旗標（或先 `JOB = "pending"` 佔位，成功換真 id、失敗清回 null）。
+- ⚠️ **R2 停止輪詢後畫面還寫「掃描中」** — **web/index.html:412-432**。失聯、`error`、`cancelled` 三種收尾都沒有隱藏 `#progress`（只有 `showResults()` 會隱藏）。失聯訊息寫進 `#form-error`（在條件卡片內、位於 progress 之上），而使用者剛被 `scrollIntoView` 帶到 progress 區 → 很可能只看到定格的「掃描中」而看不到訊息。建議停止時把同一句話也 append 進 `#log`（它有 `aria-live="polite"` 且就在視線內），或直接隱藏 `#progress`。
+- ⚠️ **R3 失聯判定靠錯誤訊息字串** — **web/index.html:427 `/not found|404/i`**，因為 `api()`（294-299）把 `r.status` 丟掉了。目前能命中（server 實測回 `{"error":"job not found"}`），但哪天文案改成中文（「找不到掃描」）就會靜默失效，退回「連續 5 次」才停。建議 `api()` 裡 `const err = new Error(...); err.status = r.status; throw err;`，改用 `e.status === 404` 判斷。
+- ⚠️ **R4 `WEEKEND_FLAG` 具黏性** — **web/index.html:349/364**。按過內建週末追蹤項後，使用者手改板名/關鍵字去掃股版，`readForm` 仍送 `weekend: true` → 結果頁掛上不相干的「目標週末…」提示。純顯示層瑕疵（比修好前「提示消失」好），要修就在使用者手動改 `#f-board`/`#f-queries` 時清旗標。
+
+補一則觀察（不計入）：`tracks.json.bak` 每次壞檔都覆蓋舊的（server.py:143）→ 先壞一次（有內容）再壞一次（0-byte）就把可救的版本蓋掉（實測連續兩次後 .bak 內容是第二次的 `{broken2`）。建議 `.bak` 已存在就不覆蓋、或帶時間戳；另外壞檔警告只印在 console，UI 端使用者只會發現「自訂追蹤項不見了」而無提示。
+
+## 仍未修（依協調者決定保留為後續事項，已實測仍在）
+
+`/api/run` 零型別驗證與無上限（實測 `{"queries":"ab"}` 仍回 200 並逐字元跑 2 次搜尋）、cancel 未知 job 回假 `{"ok":true}`（實測 200）、取消時丟棄已抓到的結果、`/api/tracks` read-modify-write lost update、`item.url` 未白名單就 fetch/塞 href、`board` 未做字元約束＋over18 擋頁誤報成板名錯誤、`log_message` 的 `args[1]`、內文讀取失敗未計數、`readForm` 寫死 `search_pages`/`max_body_reads`（追蹤項來回仍會掉值）、大寫板名別名殘留、日期不明文章放行、CODE_MAP 簽名/新 helper 落差。
+
+## VERDICT（複審）
+
+`VERDICT: clean (blockers) — safe to deliver` ｜ blocker 0（B1/B2/B3 三條全部實測驗收通過），殘留 4 項 ⚠️ 全為非阻擋後續事項。
+若還有一輪餘裕，最划算的是 **R1（2 行）＋ R2（1 行）**——這兩條正好補完 B1/B3 的最後一哩，其餘可排進下次。
+
+環境交還：我起的測試 process（8973）已全部清掉，`netstat` 8877 只剩你那一支（PID 38408）；探測時誤建的 `output/x_20260822_1706.txt` 已刪除，`git status` clean。測試期間我用直接 API 打了 1 個小 job（Stock 板、2 個單字關鍵字、不讀內文），已自然跑完。
