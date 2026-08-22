@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PTT 追蹤助手</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --ink: #1f2733;
+    --ink-2: #5b6675;
+    --line: #e3e7ec;
+    --accent: #2f6f5e;
+    --accent-ink: #ffffff;
+    --accent-soft: #e7f1ee;
+    --warn: #b4552d;
+    --chip: #eef1f4;
+    --radius: 10px;
+    --radius-sm: 8px;
+    --radius-pill: 999px;
+
+    /* 4px 間距刻度，全站間距一律取自此表，避免隨手填數字 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 40px;
+
+    --ease: cubic-bezier(.4, 0, .2, 1);
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-8); }
+
+  /* 鍵盤 focus 一致樣式（文字輸入框另有較顯眼版本，見下方 .ask input:focus） */
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button {
+    transition: filter .15s var(--ease), background-color .15s var(--ease),
+      border-color .15s var(--ease), color .15s var(--ease);
+  }
+  input::placeholder, textarea::placeholder { color: var(--ink-2); opacity: .85; }
+
+  /* 畫面上不佔位、只給螢幕閱讀器讀的標籤（補上白話輸入/結果過濾框的可見標籤） */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
+  header.site { padding: var(--space-2) 0 var(--space-5); border-bottom: 1px solid var(--line); margin-bottom: var(--space-6); }
+  header.site h1 { margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: .01em; }
+  header.site p { margin: var(--space-1) 0 0; color: var(--ink-2); font-size: .92rem; }
+
+  section { margin-bottom: var(--space-7); }
+  h2 { font-size: 1.02rem; font-weight: 600; margin: 0 0 var(--space-3); color: var(--ink); }
+  .hint { color: var(--ink-2); font-size: .85rem; margin: var(--space-1) 0 var(--space-3); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: var(--space-4);
+  }
+
+  /* 追蹤項 */
+  .tracks { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .track {
+    display: flex; align-items: center; gap: var(--space-2);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: var(--space-2) var(--space-4);
+  }
+  .track button.run {
+    background: var(--accent); color: var(--accent-ink);
+    border: 0; border-radius: var(--radius-sm); padding: 8px 14px;
+    font-size: .9rem; cursor: pointer;
+  }
+  .track button.run:hover { filter: brightness(1.08); }
+  .track .name { font-size: .95rem; }
+  .track button.del {
+    background: none; border: 0; color: var(--ink-2);
+    cursor: pointer; font-size: .88rem; padding: 8px 10px; border-radius: var(--radius-sm);
+  }
+  .track button.del:hover { color: var(--warn); background: var(--chip); }
+
+  /* 白話輸入 */
+  .ask { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .ask input {
+    flex: 1 1 220px; min-width: 0; padding: 11px 14px; font-size: 1rem;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); color: var(--ink);
+  }
+  .ask input:focus, textarea:focus, .field input:focus {
+    outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+  }
+  button.primary {
+    background: var(--accent); color: var(--accent-ink); border: 0;
+    border-radius: var(--radius); padding: 11px 20px; font-size: .98rem; cursor: pointer;
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost {
+    background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 10px 16px; font-size: .95rem; cursor: pointer;
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* 條件表單 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-4); }
+  .field label { display: block; font-size: .85rem; font-weight: 500; color: var(--ink-2); margin-bottom: var(--space-1); }
+  .field input, .field textarea {
+    width: 100%; padding: 9px 12px; font-size: .95rem;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: #fff; color: var(--ink); font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 58px; }
+  .field.full { grid-column: 1 / -1; }
+  .row-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); align-items: center; }
+  .checkline { display: flex; align-items: center; gap: var(--space-2); font-size: .92rem; color: var(--ink-2); cursor: pointer; }
+  .checkline input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+
+  /* 進度 */
+  #progress { display: none; }
+  .bar { height: 8px; background: var(--chip); border-radius: var(--radius-pill); overflow: hidden; margin: var(--space-2) 0; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s var(--ease); }
+  #log {
+    font-family: Consolas, monospace; font-size: .8rem; color: var(--ink-2);
+    max-height: 140px; overflow-y: auto; white-space: pre-wrap;
+    background: #fafbfc; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-2) 10px;
+  }
+
+  /* 結果 */
+  #results-head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); }
+  #results-head .count { font-size: .95rem; color: var(--ink-2); }
+  #filter-box {
+    flex: 1; min-width: 160px; padding: 8px 12px; font-size: .92rem;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+  }
+  .note { background: var(--accent-soft); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
+  .item { margin-bottom: var(--space-3); }
+  .item h3 { margin: 0 0 var(--space-1); font-size: 1rem; font-weight: 600; }
+  .item h3 a { color: var(--ink); text-decoration: none; }
+  .item h3 a:hover { color: var(--accent); text-decoration: underline; }
+  .meta { font-size: .83rem; color: var(--ink-2); }
+  .chips { margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: var(--radius-pill); padding: 2px 10px; font-size: .8rem; color: var(--ink-2); }
+  .preview {
+    display: none; margin-top: var(--space-3); padding: var(--space-2) var(--space-3);
+    background: #fafbfc; border-left: 3px solid var(--accent);
+    font-size: .88rem; white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow-y: auto;
+  }
+  .item.open .preview { display: block; }
+  .item .toggle {
+    margin-top: var(--space-2); background: none; border: 0; color: var(--accent);
+    cursor: pointer; font-size: .85rem; padding: 4px 2px;
+  }
+  .empty { color: var(--ink-2); font-size: .95rem; }
+  #export-path { font-size: .85rem; color: var(--accent); word-break: break-all; }
+  .error { color: var(--warn); font-size: .9rem; font-weight: 600; }
+  footer { color: var(--ink-2); font-size: .78rem; border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-8); }
+
+  /* 極窄螢幕：按鈕改滿版，避免擠成一團或誤觸 */
+  @media (max-width: 420px) {
+    .ask button.primary { width: 100%; }
+    .row-actions { flex-direction: column; align-items: stretch; }
+  }
+
+  /* 尊重「減少動態效果」系統設定 */
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <h1>PTT 追蹤助手</h1>
+    <p>用一句話描述需求，掃描任何 PTT 看板並整理你要的內容。</p>
+  </header>
+
+  <section id="sec-tracks">
+    <h2>我的追蹤項</h2>
+    <p class="hint">一鍵重跑常用掃描；掃描條件調好後可在下方存成新的追蹤項。</p>
+    <div class="tracks" id="tracks"></div>
+  </section>
+
+  <section>
+    <h2>白話需求</h2>
+    <div class="ask">
+      <label for="ask-input" class="sr-only">白話需求</label>
+      <input id="ask-input" placeholder="例：我想看省錢版這週五六日超商咖啡或飲料有什麼優惠"
+             list="ask-samples">
+      <datalist id="ask-samples">
+        <option value="我想看省錢版這週五六日超商咖啡或飲料有什麼優惠"></option>
+        <option value="追蹤股版最近7天 台積電"></option>
+        <option value="電影版最近14天 特映 贈票"></option>
+      </datalist>
+      <button class="primary" id="btn-parse">解析</button>
+    </div>
+    <p class="hint">解析結果會填進下方條件，確認或修改後再開始掃描。</p>
+  </section>
+
+  <section>
+    <h2>掃描條件</h2>
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label for="f-board">看板（英文板名）</label>
+          <input id="f-board" list="board-list" placeholder="Lifeismoney">
+          <datalist id="board-list"></datalist>
+        </div>
+        <div class="field">
+          <label for="f-days">只看最近幾天（0＝不限）</label>
+          <input id="f-days" type="number" min="0" max="365" value="10">
+        </div>
+        <div class="field">
+          <label for="f-pages">列表掃描頁數</label>
+          <input id="f-pages" type="number" min="0" max="15" value="4">
+        </div>
+        <div class="field full">
+          <label for="f-queries">搜尋關鍵字（用「、」或空白分隔，會逐一到板上搜尋）</label>
+          <input id="f-queries" placeholder="咖啡、飲料、全家、7-11">
+        </div>
+        <div class="field full">
+          <label for="f-groups">必含條件（一行一組；同一行任一詞命中即可，每一行都要命中才收錄；留空＝不過濾）</label>
+          <textarea id="f-groups" placeholder="超商、全家、7-11、萊爾富&#10;咖啡、飲料、買一送一"></textarea>
+        </div>
+        <div class="field full">
+          <label for="f-exclude">排除詞（標題含任一詞就跳過）</label>
+          <input id="f-exclude" placeholder="徵求、問卦">
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="primary" id="btn-run">開始掃描</button>
+        <button class="ghost" id="btn-cancel" style="display:none">取消</button>
+        <button class="ghost" id="btn-save-track">存成追蹤項</button>
+        <label class="checkline"><input type="checkbox" id="f-body" checked> 讀取內文（較慢但能看摘要、比對更準）</label>
+        <span class="error" id="form-error"></span>
+      </div>
+    </div>
+  </section>
+
+  <section id="progress">
+    <h2>掃描中</h2>
+    <div class="card">
+      <div class="bar"><i id="bar-fill"></i></div>
+      <div id="log" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section id="results" style="display:none">
+    <h2>結果</h2>
+    <div id="note" class="note" style="display:none"></div>
+    <div id="results-head">
+      <span class="count" id="count"></span>
+      <label for="filter-box" class="sr-only">在結果中再過濾</label>
+      <input id="filter-box" placeholder="在結果中再過濾（標題/作者/內文）">
+      <button class="ghost" id="btn-export">匯出 TXT</button>
+    </div>
+    <div id="export-path"></div>
+    <div id="items"></div>
+  </section>
+
+  <footer>
+    只讀取 PTT 公開網頁、不登入不發文；請求間有禮貌延遲。優惠與內容以原文及官方公告為準。
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let META = { tracks: [], boards: [] };
+let JOB = null;           // 進行中 job id
+let POLL = null;
+let POLL_FAILS = 0;       // 連續輪詢失敗次數
+let WEEKEND_FLAG = false; // 目前條件是否為週末追蹤（由 fillForm 設定）
+let RESULTS = [];
+let NOTE = "";
+let LAST_NAME = "PTT掃描結果";
+
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+};
+const post = (path, obj) => api(path, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(obj),
+});
+
+/* ---------------- 追蹤項 ---------------- */
+function renderTracks() {
+  const box = $("tracks");
+  box.innerHTML = "";
+  if (!META.tracks.length) {
+    box.innerHTML = '<span class="empty">還沒有追蹤項。</span>';
+    return;
+  }
+  for (const t of META.tracks) {
+    const div = document.createElement("div");
+    div.className = "track";
+    const run = document.createElement("button");
+    run.className = "run";
+    run.textContent = "掃描";
+    run.addEventListener("click", () => { fillForm(t.task); LAST_NAME = t.name; runTask(t.task); });
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = t.name;
+    const del = document.createElement("button");
+    del.className = "del";
+    del.title = "刪除追蹤項";
+    del.textContent = "刪除";
+    del.addEventListener("click", async () => {
+      if (!confirm(`刪除追蹤項「${t.name}」？`)) return;
+      const j = await post("/api/tracks", { action: "delete", id: t.id });
+      META.tracks = j.tracks; renderTracks();
+    });
+    div.append(run, name, del);
+    box.appendChild(div);
+  }
+}
+
+/* ---------------- 表單 <-> task ---------------- */
+const splitWords = (s) => (s || "").split(/[、,，/\s]+/).map(x => x.trim()).filter(Boolean);
+
+function fillForm(task) {
+  $("f-board").value = task.board || "";
+  $("f-days").value = task.days ?? 10;
+  $("f-pages").value = task.scan_latest_pages ?? 4;
+  $("f-queries").value = (task.queries || []).join("、");
+  $("f-groups").value = (task.must_groups || []).map(g => g.join("、")).join("\n");
+  $("f-exclude").value = (task.exclude || []).join("、");
+  $("f-body").checked = task.read_body !== false;
+  WEEKEND_FLAG = !!task.weekend;
+}
+
+function readForm() {
+  const groups = $("f-groups").value.split("\n").map(splitWords).filter(g => g.length);
+  return {
+    board: $("f-board").value.trim(),
+    days: Math.max(0, parseInt($("f-days").value || "0", 10) || 0),
+    scan_latest_pages: Math.max(0, parseInt($("f-pages").value || "0", 10) || 0),
+    search_pages: 3,
+    queries: splitWords($("f-queries").value),
+    must_groups: groups,
+    exclude: splitWords($("f-exclude").value),
+    read_body: $("f-body").checked,
+    max_body_reads: 30,
+    weekend: WEEKEND_FLAG || /週末|五六日/.test($("ask-input").value),
+  };
+}
+
+/* ---------------- 白話解析 ---------------- */
+$("btn-parse").addEventListener("click", async () => {
+  const text = $("ask-input").value.trim();
+  $("form-error").textContent = "";
+  if (!text) { $("form-error").textContent = "請先輸入需求。"; return; }
+  try {
+    const j = await post("/api/parse", { text });
+    fillForm(j.task);
+    LAST_NAME = text.slice(0, 30);
+    $("form-error").textContent = "";
+  } catch (e) { $("form-error").textContent = e.message; }
+});
+$("ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-parse").click(); });
+
+/* ---------------- 執行與輪詢 ---------------- */
+async function runTask(task) {
+  $("form-error").textContent = "";
+  if (JOB) { $("form-error").textContent = "已有掃描進行中，請先取消或等它完成再開新掃描。"; return; }
+  if (!task.board) { $("form-error").textContent = "請填看板英文板名。"; return; }
+  try {
+    const j = await post("/api/run", { task });
+    if (POLL) { clearInterval(POLL); POLL = null; }
+    POLL_FAILS = 0;
+    JOB = j.job_id;
+    $("progress").style.display = "block";
+    $("results").style.display = "none";
+    $("btn-run").disabled = true;
+    $("btn-cancel").style.display = "inline-block";
+    $("log").textContent = "";
+    $("bar-fill").style.width = "0%";
+    POLL = setInterval(pollJob, 900);
+    $("progress").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) { $("form-error").textContent = e.message; }
+}
+
+async function pollJob() {
+  if (!JOB) return;
+  try {
+    const j = await api("/api/jobs/" + JOB);
+    POLL_FAILS = 0;
+    $("log").textContent = j.log.join("\n");
+    $("log").scrollTop = $("log").scrollHeight;
+    const p = j.progress || {};
+    if (p.total) $("bar-fill").style.width = Math.round(100 * p.done / p.total) + "%";
+    if (j.status !== "running") {
+      clearInterval(POLL); POLL = null; JOB = null;
+      $("btn-run").disabled = false;
+      $("btn-cancel").style.display = "none";
+      if (j.status === "done") {
+        $("bar-fill").style.width = "100%";
+        RESULTS = j.results; NOTE = j.note || "";
+        showResults();
+      } else if (j.status === "error") {
+        $("form-error").textContent = j.error || "掃描失敗";
+      }
+    }
+  } catch (e) {
+    // 連續失敗或 job 已不存在（server 重啟/被淘汰）就停止輪詢並告知，避免永遠卡在「掃描中」
+    POLL_FAILS++;
+    if (POLL_FAILS >= 5 || /not found|404/i.test(e.message)) {
+      clearInterval(POLL); POLL = null; JOB = null; POLL_FAILS = 0;
+      $("btn-run").disabled = false;
+      $("btn-cancel").style.display = "none";
+      $("form-error").textContent = "與伺服器失聯，掃描狀態未知（" + e.message + "）。請確認服務仍在執行後重試。";
+    }
+  }
+}
+
+$("btn-run").addEventListener("click", () => runTask(readForm()));
+$("btn-cancel").addEventListener("click", () => { if (JOB) post("/api/jobs/" + JOB + "/cancel", {}); });
+
+/* ---------------- 結果 ---------------- */
+function showResults() {
+  $("progress").style.display = "none";
+  $("results").style.display = "block";
+  $("note").style.display = NOTE ? "block" : "none";
+  $("note").textContent = NOTE;
+  $("filter-box").value = "";
+  $("export-path").textContent = "";
+  renderItems(RESULTS);
+  $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderItems(list) {
+  $("count").textContent = `共 ${list.length} 篇`;
+  const box = $("items");
+  box.innerHTML = "";
+  if (!list.length) {
+    box.innerHTML = '<p class="empty">沒有符合條件的文章。可以放寬「必含條件」或增加天數再試。</p>';
+    return;
+  }
+  for (const r of list) {
+    const div = document.createElement("div");
+    div.className = "item card";
+    const h = document.createElement("h3");
+    const a = document.createElement("a");
+    a.href = r.url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = r.title;
+    h.appendChild(a);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = `${r.date || ""}　${r.author || ""}`;
+    div.append(h, meta);
+    if (r.matched && r.matched.length) {
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const m of r.matched) {
+        const c = document.createElement("span");
+        c.className = "chip"; c.textContent = m;
+        chips.appendChild(c);
+      }
+      div.appendChild(chips);
+    }
+    const pre = document.createElement("div");
+    pre.className = "preview";
+    pre.textContent = r.preview || "";
+    const btn = document.createElement("button");
+    btn.className = "toggle";
+    btn.textContent = "顯示內文摘要";
+    btn.addEventListener("click", async () => {
+      if (div.classList.contains("open")) {
+        div.classList.remove("open");
+        btn.textContent = "顯示內文摘要";
+        return;
+      }
+      if (!pre.textContent) {
+        btn.textContent = "讀取中…";
+        try {
+          const j = await api("/api/article?url=" + encodeURIComponent(r.url));
+          pre.textContent = j.body || "（無內文）";
+          r.preview = pre.textContent;
+        } catch (e) { pre.textContent = "讀取失敗：" + e.message; }
+      }
+      div.classList.add("open");
+      btn.textContent = "收合";
+    });
+    div.append(btn, pre);
+    box.appendChild(div);
+  }
+}
+
+$("filter-box").addEventListener("input", () => {
+  const q = $("filter-box").value.trim().toLowerCase();
+  if (!q) { renderItems(RESULTS); return; }
+  renderItems(RESULTS.filter(r =>
+    (r.title + " " + (r.author || "") + " " + (r.preview || "")).toLowerCase().includes(q)
+  ));
+});
+
+$("btn-export").addEventListener("click", async () => {
+  try {
+    const j = await post("/api/export", { name: LAST_NAME, results: RESULTS, note: NOTE });
+    $("export-path").textContent = "已匯出：" + j.path;
+  } catch (e) { $("export-path").textContent = "匯出失敗：" + e.message; }
+});
+
+/* ---------------- 存追蹤項 ---------------- */
+$("btn-save-track").addEventListener("click", async () => {
+  const task = readForm();
+  if (!task.board) { $("form-error").textContent = "請先填看板。"; return; }
+  const name = prompt("追蹤項名稱：", LAST_NAME || `${task.board} 掃描`);
+  if (!name) return;
+  try {
+    const j = await post("/api/tracks", { action: "save", track: { name, task } });
+    META.tracks = j.tracks; renderTracks();
+  } catch (e) { $("form-error").textContent = e.message; }
+});
+
+/* ---------------- init ---------------- */
+(async () => {
+  try {
+    META = await api("/api/meta");
+    renderTracks();
+    const dl = $("board-list");
+    for (const b of META.boards) {
+      const o = document.createElement("option");
+      o.value = b;
+      dl.appendChild(o);
+    }
+    // 預設帶入內建追蹤項條件，開頁即可直接按「開始掃描」
+    if (META.tracks[0]) fillForm(META.tracks[0].task);
+  } catch (e) {
+    $("form-error").textContent = "載入失敗：" + e.message;
+  }
+})();
+</script>
+</body>
+</html>
