@@ -22,7 +22,19 @@ import threading
 import time
 import uuid
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# PTT 顯示的都是台灣時間；伺服器可能跑在 UTC（GitHub Actions），
+# 所有跟文章時間比較的「現在」一律用台灣時間，否則文章年齡會算錯。
+try:
+    from zoneinfo import ZoneInfo
+    TAIPEI = ZoneInfo("Asia/Taipei")
+except Exception:  # Windows 無 tzdata 時退固定 UTC+8（台灣無夏令時間）
+    TAIPEI = timezone(timedelta(hours=8))
+
+
+def now_tw() -> datetime:
+    return datetime.now(TAIPEI).replace(tzinfo=None)
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -468,7 +480,7 @@ _jobs_lock = threading.Lock()
 
 def job_log(job: dict, msg: str) -> None:
     with _jobs_lock:
-        job["log"].append(f"{datetime.now():%H:%M:%S} {msg}")
+        job["log"].append(f"{now_tw():%H:%M:%S} {msg}")
 
 
 def run_task(task: dict, job: dict) -> None:
@@ -485,7 +497,7 @@ def run_task(task: dict, job: dict) -> None:
         days = int(task.get("days") or 0)
         read_body = bool(task.get("read_body", True))
         max_body_reads = int(task.get("max_body_reads", 25))
-        today = datetime.now()
+        today = now_tw()
 
         seen: dict[str, object] = {}
         for q in queries:
@@ -675,7 +687,7 @@ def run_hot(task: dict, job: dict) -> None:
         days = int(task.get("days") or 0)
         max_detail = int(task.get("max_detail", 40))
         search_pages = max(1, int(task.get("search_pages", 2)))
-        today = datetime.now()
+        today = now_tw()
 
         if board:
             boards = [board]
@@ -740,7 +752,7 @@ def run_hot(task: dict, job: dict) -> None:
         job_log(job, f"候選 {len(candidates)} 篇／{len(reps)} 個討論串，讀取前 {len(detail)} 篇留言統計")
 
         results: list[dict] = []
-        now = datetime.now()
+        now = now_tw()
         for i, c in enumerate(detail, 1):
             if job["cancel"]:
                 raise InterruptedError
@@ -799,7 +811,7 @@ def run_download(task: dict, job: dict) -> None:
 
         chunks = [
             f"PTT Assistant 批次下載｜{name}",
-            f"整理時間：{datetime.now():%Y-%m-%d %H:%M:%S}",
+            f"整理時間：{now_tw():%Y-%m-%d %H:%M:%S}",
             f"共 {len(urls)} 篇｜{'含留言' if include_comments else '僅文章'}",
             "=" * 72,
             "",
@@ -831,7 +843,7 @@ def run_download(task: dict, job: dict) -> None:
         if ok == 0:
             raise RuntimeError("所有文章都讀取失敗，未產生檔案。")
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        stamp = now_tw().strftime("%Y%m%d_%H%M")
         suffix = "含留言" if include_comments else "文章"
         path = OUTPUT_DIR / f"{safe_filename(name)}_{suffix}_{stamp}.txt"
         path.write_text("\n".join(chunks), encoding="utf-8-sig")
@@ -923,7 +935,7 @@ def write_cache_if_track(job: dict) -> None:
             return
         payload = {
             "track_id": track_id,
-            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "updated_at": now_tw().strftime("%Y-%m-%d %H:%M"),
             "results": job["results"],
             "note": job["note"],
         }
@@ -970,7 +982,7 @@ def _refresh_log(line: str) -> None:
         log_file = ROOT / "data" / "refresh.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with log_file.open("a", encoding="utf-8") as f:
-            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {line}\n")
+            f.write(f"{now_tw():%Y-%m-%d %H:%M:%S} {line}\n")
     except Exception:
         pass
 
@@ -1028,11 +1040,11 @@ def export_results_txt(name: str, results: list[dict], note: str = "") -> Path:
     if not results:
         raise ValueError("結果格式不正確，沒有可匯出的項目")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    stamp = now_tw().strftime("%Y%m%d_%H%M")
     out_file = OUTPUT_DIR / f"{safe_filename(name)}_{stamp}.txt"
     chunks = [
         f"PTT Assistant 匯出｜{name}",
-        f"整理時間：{datetime.now():%Y-%m-%d %H:%M:%S}",
+        f"整理時間：{now_tw():%Y-%m-%d %H:%M:%S}",
         f"共 {len(results)} 篇",
     ]
     if note:
