@@ -346,3 +346,31 @@ blocker 0（時區那條是真 bug，但 `5e459cc` 已修、已推、我獨立�
 最划算的下一步：**H1 一行（板名進 thread key，止住「某板缺席」的第二個成因）＋ H4 兩行（min_push 下限與 client 端複驗）＋ H3 的守門**（這輪的教訓就是「時間算錯了沒人喊」，補一個會叫的哨兵比再修一次划算）。另外請在台灣 23:07 那輪 Action 跑完後，回頭確認線上 `per_hour` 已回到合理區間。
 
 環境交還：只做離線測試與唯讀 HTTP 探測（PTT 5 次請求：3 篇文章 ＋ 2 次 recommend 邊界搜尋；線上 hot.json 1 次），沒有起長駐 process、沒有寫入 `data/`／`output/`、scratchpad 已清空。
+
+---
+
+# 熱門 v2 最終確認 2026-08-22（Angus，範圍限 commit b0a3114）
+
+`git show b0a3114 --stat`：只動 `server.py`／`scripts/build_site.py`／`web/index.html`／`site/index.html`／本報告，無夾帶；working tree clean、`origin/master..HEAD` 為空＝**已推送**（下輪 Action 生效）。
+
+- ✅ **H1 討論串 key 帶板名** — `threads.setdefault(f"{c['board']}|{_thread_key(c['title'])}", …)`，正是處方。八卦 5→7 篇的實證與「跨板同名不再互相吃掉」一致。
+- ✅ **H4 min_push 夾下限＋候選複驗** — `max(1, int(...))` ＋ 收集時 `push_score(it.push) < min_push → skip`。**實測不會誤殺**：`recommend:30` 對 Gossiping／C_Chat 各 20 篇，`push` 空白 0 篇、`push_score < 30` 0 篇 → 正常運作下複驗一篇都不會丟。（唯一殘留可能：PTT 哪天在搜尋結果不渲染 `.nrec`，空白會被算 0 而全數 skip；要更保險可加 `if it.push.strip() and push_score(...) < min_push`。優先度低，記著就好。）
+- ✅ **H2 讀取失敗保留該篇** — `results.append({**c, …, "rising": 0.0})` ＋ `note` 標「N 篇未取得留言統計」。前端相容性確認：`r.comments != null` 對 undefined 成立 → meta 不印留言欄；`comments`／`ts` 排序都 `|| 0` → 這些項自然沉底，不會插到前面。
+- ✅ **H3 雙層哨兵** — run_hot：`dt_fail > len(results)/2` 時 job_log 警告；build_site：`rising` 全 0 或 `per_hour` 中位數 > 2000 → `SystemExit` 讓 Action 紅燈。取樣集 `stats = [... if r.get("comments") is not None]` **正確排除了 H2 的無統計項**（否則它們的 rising=0 會把哨兵誤觸）。
+- ✅ **locale 防雷有效** — 實測 `setlocale(LC_TIME, 'Chinese_Taiwan.950')` 下新解析器仍正確回 `2026-08-22 18:54:13`（舊 strptime 在同條件下回 None）；壞輸入 `''`／`None`／`Sat Xyz …`／`Wed Feb 30 …`（ValueError）／`garbage`／缺秒數 全部回 None，不拋例外。regex 不會誤把星期當月份（`Sat` 後面不是數字，引擎自然前進到 `Aug`）。
+- ✅ **「最新」排序** — `data-sort="time"` ＋ `r.ts || 0`，web／site 兩檔一致；`ts` 只用於排序不顯示，所以雖然 `naive_taipei.timestamp()` 在 UTC 主機上的絕對 epoch 會差 8 小時，**同一批都用同一方式計算，順序正確** ✓。
+
+## 兩則記給未來（不影響本次交付）
+
+- `ts` 不是真 epoch（在非台灣時區主機上偏 8 小時）。**日後若要做「3 小時前」這種相對時間顯示，千萬不要用 `Date.now() - ts*1000`**，否則線上版會再犯一次這次的時區事故；要顯示就在後端算好字串或改存帶 tz 的 ISO 字串。
+- build_site 哨兵在「40 篇全部讀取失敗」時會因為 `stats` 為空而整組跳過（`if stats and …`），變成發佈一份完全沒有數字的清單。加一行 `if not stats: raise SystemExit("全部文章都沒有留言統計，拒絕發佈")` 就補滿。
+- 顯示層小落差：H2 保留項的 `date` 沿用候選階段的 `%Y-%m-%d`，有統計的項是 `%m-%d %H:%M`，同一份清單會出現兩種日期格式。
+
+## VERDICT（最終）
+
+`VERDICT: clean — safe to deliver`
+
+H1／H2／H3／H4 與 locale 五項全部照處方修正並實測驗收，新增的「最新」排序無回歸、無 XSS 面、與失敗保留項相容。blocker 0、⚠️ 0（上面兩則屬未來提醒，不計入）。
+本輪熱門 v2 的完整結論：時區事故已修並推送、缺席的兩個成因（快板熱文沉深頁→recommend 搜尋、跨板同名誤併→key 帶板名）都堵住、時間計算壞掉現在會出聲（job log ＋ Action 紅燈）。剩下的唯一人工確認點還是那個：台灣 23:07 之後看一眼線上 `per_hour` 是否落回合理區間。
+
+環境交還：本輪只做離線解析測試與 2 次 PTT 搜尋（各 1 頁）唯讀探測，沒有起長駐 process、沒有寫入 `data/`／`output/`；scratchpad 內我的檔案已刪（其餘 `fill_*.py`／`test_hot_v2.py` 不是我的，未動）。

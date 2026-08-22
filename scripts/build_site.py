@@ -53,6 +53,8 @@ def main() -> None:
     hot = run(run_hot, dict(tracks["hot-now"]["task"]))
     # 哨兵：時間計算壞掉時寧可讓 Action 紅燈，不要安靜發佈壞資料（2026-08-22 UTC 時區事故的教訓）
     stats = [r for r in hot["results"] if r.get("comments") is not None]
+    if hot["results"] and not stats:
+        raise SystemExit("全部文章都沒取得留言統計，拒絕發佈沒有數字的清單")
     if stats and all((r.get("rising") or 0) == 0 for r in stats):
         raise SystemExit("rising 全為 0：文章時間解析疑似失敗，拒絕發佈")
     per_hours = sorted(r["per_hour"] for r in stats if r.get("per_hour"))

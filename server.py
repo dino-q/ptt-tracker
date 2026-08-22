@@ -801,7 +801,9 @@ def run_hot(task: dict, job: dict) -> None:
                 "boo": ps.get("噓", 0),
                 "per_hour": round(comments / age_h, 1) if age_h else None,
                 "rising": round(comments / ((age_h + 2) ** 1.6), 2) if age_h else 0.0,
-                "ts": dt.timestamp() if dt else None,  # 給前端「最新」排序用
+                # ts 只能拿來「排序」：naive 台灣時間取 timestamp，在 UTC 主機上
+                # 不是真 epoch（偏 8 小時）。前端絕不可拿它跟 Date.now() 算相對時間。
+                "ts": dt.timestamp() if dt else None,
             })
 
         # H3 哨兵：時間解析大量失敗時排序等於壞掉，要出聲不能靜默
