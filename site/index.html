@@ -45,6 +45,19 @@
   }
   .tab:hover { border-color: var(--accent); color: var(--accent); }
   .tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  /* 排序切換：刻意做成「凹槽＋實色滑塊」的分段控制項（沿用 .views 頁面級導覽的視覺語言），
+     跟上面 #cat-tabs 那排「單顆外框 pill」的分類篩選拉開視覺差異——避免使用者把「排序」誤讀成「另一組分類」 */
+  #sort-toggle { background: var(--chip); border-radius: var(--radius-pill); padding: 3px; gap: 2px; align-items: center; }
+  #sort-toggle .sort-label { font-size: .78rem; color: var(--ink-2); padding: 0 var(--space-1) 0 var(--space-2); white-space: nowrap; }
+  #sort-toggle .tab {
+    background: transparent; border: 0; color: var(--ink-2);
+    padding: 6px var(--space-3); font-size: .82rem;
+  }
+  #sort-toggle .tab:hover { color: var(--accent); }
+  #sort-toggle .tab.active {
+    background: var(--surface); border-color: transparent; color: var(--ink);
+    font-weight: 600; box-shadow: 0 1px 2px rgba(31,39,51,.12);
+  }
 
   #head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); }
   #count { font-size: .95rem; color: var(--ink-2); }
@@ -59,7 +72,10 @@
   .card h3 { margin: 0 0 var(--space-1); font-size: 1rem; font-weight: 600; }
   .card h3 a { color: var(--ink); text-decoration: none; }
   .card h3 a:hover { color: var(--accent); text-decoration: underline; }
-  .meta { font-size: .83rem; color: var(--ink-2); }
+  .meta { font-size: .83rem; color: var(--ink-2); line-height: 1.7; }
+  /* meta 行變長後的重點提示：留言（含每小時）／討論串篇數是排序依據的數字，
+     用 accent 提亮跟日期/作者/看板這些單純識別資訊拉開層次 */
+  .meta-metric { color: var(--accent); font-weight: 600; }
   .chips { margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { background: var(--chip); border-radius: var(--radius-pill); padding: 2px 10px; font-size: .8rem; color: var(--ink-2); }
   .empty { color: var(--ink-2); font-size: .95rem; }
@@ -85,6 +101,7 @@
   <div id="head">
     <span id="count"></span>
     <span class="tabs" id="sort-toggle" style="display:none; margin-bottom:0">
+      <span class="sort-label">排序</span>
       <button class="tab active" data-sort="rising">正在起飛</button>
       <button class="tab" data-sort="comments">總留言數</button>
     </span>
@@ -183,12 +200,27 @@ function applyFilters(d) {
     h.appendChild(a);
     const meta = document.createElement("div");
     meta.className = "meta";
-    const bits = [r.date || "", r.author || ""];
-    if (r.board) bits.push(r.board + " 板");
-    if (r.push) bits.push("推文 " + r.push);
-    if (r.comments != null) bits.push("留言 " + r.comments + (r.per_hour != null ? "（每小時 " + r.per_hour + "）" : ""));
-    if (r.thread > 1) bits.push("討論串 " + r.thread + " 篇");
-    meta.textContent = bits.filter(Boolean).join("　");
+    // 基本識別資訊（日期/作者/看板/推文）維持素色文字；留言與討論串是排序依據的熱度數字，
+    // 拆成獨立 span 套 .meta-metric 提亮，掃視時能對上方 #sort-toggle 選的排序方式
+    const baseBits = [r.date || "", r.author || ""];
+    if (r.board) baseBits.push(r.board + " 板");
+    if (r.push) baseBits.push("推文 " + r.push);
+    meta.textContent = baseBits.filter(Boolean).join("　");
+    let metaHasContent = !!meta.textContent;
+    if (r.comments != null) {
+      const m = document.createElement("span");
+      m.className = "meta-metric";
+      m.textContent = "留言 " + r.comments + (r.per_hour != null ? "（每小時 " + r.per_hour + "）" : "");
+      meta.append(metaHasContent ? "　" : "", m);
+      metaHasContent = true;
+    }
+    if (r.thread > 1) {
+      const m = document.createElement("span");
+      m.className = "meta-metric";
+      m.textContent = "討論串 " + r.thread + " 篇";
+      meta.append(metaHasContent ? "　" : "", m);
+      metaHasContent = true;
+    }
     div.append(h, meta);
     if (r.matched && r.matched.length) {
       const chips = document.createElement("div");

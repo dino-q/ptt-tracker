@@ -127,3 +127,49 @@
 - 給 Bevis：本輪為純視覺層級收斂，未涉及功能或產品方向判斷，無需審視。
 - 給 Ray：建議做一次瀏覽器 regression——重點測分類頁籤切換（`#cat-tabs` 篩選是否仍正確過濾清單）、下載全文按鈕（`btn-export` 位置移動後點擊是否仍觸發 `/api/download`）、白話輸入解析後自動切頁；本輪只動 CSS 與一層 HTML 結構包裝，理論上不影響任何 click/keydown 邏輯，但建議實測收斂風險。
 - 給 Andy：請記錄這次「兩層 pill 同語彙不同權重」與「下載控制分組」的設計決策，日後若某功能頁的控制卡要再加新的批次操作按鈕，優先考慮沿用 `.export-actions` 的分組手法（`margin-left:auto` + 分隔線），而不是繼續平鋪塞進同一排。
+
+---
+
+## 熱門 v2 增量（新增：#sort-toggle 排序切換、meta 行新增留言/討論串數字、分類頁籤擴增為看板主題 8–10 個）
+
+### 任務意圖判定
+- 屬於 ④ 審查（增量）：既有畫面上三輪已過 `ui-ux-pro-max` 設計關，這次只審熱門文章 v2 新增的 3 個元素是否與既有系統一致
+- 硬性載入 `ui-ux-pro-max`（未用代替方案）；本輪 Windows 主機端同樣沒有 `scripts/search.py` 對應資料庫（`project_tor_uiuxpromax_host_gap.md` 已知現象），改用 skill 內建 Quick Reference / Priority 表直接比對，重點對照 Priority 9（Navigation Patterns：`nav-hierarchy` 主次要清楚分離、`avoid-mixed-patterns`）、Priority 6（Typography & Color：`weight-hierarchy`）、Priority 5（RWD：`horizontal-scroll` 不能靠橫向捲動解決過多 tab）
+- 本輪同時改 `web/index.html`（本機版）與 `site/index.html`（唯讀版），兩邊都有各自獨立的 `<script>`，但渲染結果 meta 行與排序切換的 HTML/CSS 結構幾乎一致，逐一對照改，確保兩邊視覺一致
+
+### 整體協調性檢視
+- 退一步看整張畫面：三個新元素都落在既有「結果區」骨架裡（`#cat-tabs` 分類列 → `#results-head`/`#head` 計數＋排序＋過濾列 → 卡片列表），沒有新開版面、沒有加新入口，方向正確。
+- 這次判定**必須順手重排**、不能照現狀硬塞的地方：`#sort-toggle` 原本直接沿用 `.tab` 這個「結果分類頁籤」的 outline pill 樣式，只是換一行放。問題是它跟正上方 `#cat-tabs`（現在擴增到 8–10 個看板主題）是同一種視覺語彙、同一種顏色權重，兩排 pill 疊在一起時使用者很容易把「排序方式」誤讀成「另一組可多選的分類」——這正好命中 Priority 9 `avoid-mixed-patterns`（同一層級不要混用多套語彙）反過來的陷阱：語彙相同但語意不同，一樣會混淆。分類頁籤變多之後這個風險被放大（一整排看板名稱 pill 下面接著兩顆長得一模一樣的排序 pill，掃視時很難一眼分辨界線在哪）。
+  - 修法：把 `#sort-toggle` 改成「凹槽＋實色滑塊」的分段控制項（segmented control），直接沿用本頁已經存在的 `.views`（頁面級功能切換）視覺語言——淡灰底凹槽容器＋透明按鈕＋active 時填白底＋陰影。這不是發明新元件，是把「本來就用來表達『互斥狀態切換』」的既有語彙用在刀口上，跟「用來表達『可選分類』」的 `.tab` outline pill 明確分家。同時在容器最前面加一個小小的靜態文字標籤「排序」，用最低成本把語意錨死，不需要圖示或額外裝飾。
+  - 這是**順手收斂**而非硬塞：沒有新增按鈕、沒有改變排序邏輯或觸發方式，只是把「長得像分類的排序控制項」矯正回「看起來像排序的排序控制項」，且完全沒有更動 `data-sort`／JS 選取器（`#sort-toggle .tab`）。
+- meta 行變長（新增「留言 N（每小時 M）」「討論串 N 篇」）：原本全部資訊用同一個灰階字色、全形空格分隔的純文字，日期/作者這種單純識別資訊跟「留言/每小時/討論串」這種驅動排序的關鍵數字混在一起、沒有輕重之分，資訊變多後尤其容易變成一整行難以掃視的灰字牆，也跟上方新加的排序功能脫節（使用者切換「總留言數」排序後，卻要在一整排同色文字裡自己找出留言數字在哪）。
+  - 修法：把「留言（含每小時）」與「討論串 N 篇」拆成獨立 `<span class="meta-metric">`，用 `--accent` 提亮＋字重 600，其餘（日期/作者/看板/推文）維持原本素色文字。這樣排序依據的數字自然被視覺強調，跟 `#sort-toggle` 的功能形成呼應，是本輪「整體協調」的核心用意——不是單獨修 meta 行好看，而是讓 meta 行跟同一輪新增的排序功能互相對得上。
+  - 這需要小幅調整 JS 渲染邏輯（把 `meta.textContent = bits.join(...)` 拆成「先塞素色文字、再用 `createElement` 補兩個強調 span」），但沒有改動任何既有 `id`／既有 class 名稱／既有事件邏輯，純粹是渲染輸出的內部實作細節。
+- 分類頁籤擴增到 8–10 個（熱門看板主題）：既有 `.tabs { flex-wrap: wrap }` 機制本來就是為「數量不固定的分類」設計，看板主題變多只是自然多繞一行，不需要加橫向捲動（Priority 5 明確反對 `horizontal-scroll`），維持現狀即可，這部分**沒有動**。
+- 沒有發現需要跟 Dino/主 Claude 討論的結構性整合建議——本輪處理的是「同語彙不同語意造成混淆」與「資訊密度提高後缺層次」，都是局部協調性修整（對齊、間距、層次、配色）層級，照協議可以直接做。
+
+### 設計決策
+1. **`#sort-toggle` 改為凹槽分段控制項，脫離 `.tab` 的分類 pill 視覺**：`background:var(--chip)` 凹槽容器＋`padding:3px`＋`gap:2px`；容器內 `.tab` 改 `background:transparent; border:0`，active 時 `background:var(--surface); box-shadow:0 1px 2px rgba(31,39,51,.12)`。理由：沿用本頁已建立的「軌道＋滑塊＝互斥切換」語言（`.views` 已示範過），跟「分類篩選＝outline pill」徹底分家，符合 Priority 9 `nav-hierarchy`／`avoid-mixed-patterns`。捨棄了「幫排序 pill 換個新顏色」的做法——換色只能治標，換視覺骨架（有無容器）才是治本、且不引入第三套語彙。
+2. **新增 `.sort-label`「排序」文字錨點**：低成本（一個 12px 灰字），在分段控制項前明講這組控制項的作用，直接消解「跟上面分類 tab 是不是同一件事」的疑慮。純 HTML/CSS 增補，不影響 `#sort-toggle .tab` 的 JS 選取器（querySelectorAll 只認 `.tab`，label 不是 `.tab`，不受影響）。
+3. **meta 行拆出 `.meta-metric`（`--accent` + 字重 600）強調排序依據數字**：命中 Priority 6 `weight-hierarchy`（用字重/色彩強化層級，不是全部同色）；也呼應 Priority 4 `consistency`——強調色沿用既有 `--accent` token，沒有發明新顏色。捨棄了「把整行拆成多個 chip 徽章」的做法（會讓 meta 行從一行文字膨脹成一排小方塊，在本來已經偏密的結果卡片裡更佔空間、更吵），選擇最輕量的「同一行內文字提亮」，維持「克制」。
+4. **`.meta` 補 `line-height:1.7`**：新增的兩段內容讓行更容易在窄螢幕換行，既有 1.6 全站行高在多行文字疊字重時略緊，微調到 1.7 讓換行後的可讀性更寬鬆，不影響單行時的視覺（差異僅 0.1，內容仍以全形空格自然斷行，不會斷字）。
+5. **兩個檔案改法一致**：`web/index.html`（本機版）與 `site/index.html`（唯讀版）的 CSS 規則、HTML 標籤結構、JS meta 渲染邏輯逐一對照修改，維持兩份輸出視覺一致（唯讀版本身架構更簡單、沒有 `#results-head`/`export-actions`，但 `#sort-toggle`／`.meta`／`#cat-tabs` 的結構與本機版完全對應，改法可以 1:1 套用）。
+6. **克制**：沒有新增顏色 token（`--accent`/`--chip`/`--surface`/`--ink-2` 全是既有變數）；沒有加圖示、陰影堆疊、裝飾色塊；沒有把分類頁籤數量變多當理由加上橫向捲軸或「更多」收合選單（8–10 個仍在 `flex-wrap` 可負荷範圍，過早引入收合選單反而增加一次多餘點擊）；完全沒有更動 `#sort-toggle`／`data-sort`／`data-view` 等 JS 依賴的選取器與屬性。
+
+### 產物位置
+- 直接編輯（兩份文件改法一致）：
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html` — CSS 新增 `#sort-toggle`／`#sort-toggle .sort-label`／`#sort-toggle .tab`／`#sort-toggle .tab.active`／`.meta-metric` 規則、`.meta` 補 `line-height`；HTML 在 `#sort-toggle` 內加 `<span class="sort-label">排序</span>`；JS `renderItems()` 的 meta 組裝邏輯改為「素色文字 + 兩個 `.meta-metric` span」
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html` — 對應位置同步同一組 CSS／HTML／JS 改法
+  - 所有既有 `id`／`data-sort`／`data-view`／JS 用到的 class（`tab`／`active`／`tabs`／`meta`）**一律未改名**，`#sort-toggle` 的 `style.display` 顯隱邏輯完全交給 JS，本輪 CSS 未設定任何 `display` 屬性去蓋過它
+- 執行方式：`web/index.html` 照專案既有方式跑 `server.py`（`http://127.0.0.1:8877`），重新整理熱門頁即可看到效果；`site/index.html` 為靜態唯讀頁，直接開檔或部署後查看即可
+
+### 自審結果（④ 心法）
+- a11y：`#sort-toggle .tab` 仍是原生 `<button>`，全域 `button:focus-visible` 規則不受影響（拿掉 `border` 不影響 outline，兩者是獨立盒模型層）；`.meta-metric` 的 `--accent`(#2f6f5e) 文字 on 白色卡片底，對比遠高於 4.5:1 AA（沿用上一輪已算過的色票，未新增色值）；新增的 `.sort-label` 是純裝飾性文字說明，非互動元素，不需要額外 aria 屬性。
+- 狀態完整度：`#sort-toggle .tab` 的 hover/active 狀態齊全（hover 變 `--accent` 字色、active 實色滑塊＋陰影），沿用既有 `button` 全域 transition，切換有漸變不是瞬間跳色。
+- RWD：`#sort-toggle` 未設定 `display`（維持 JS 控制的 flex/none），容器本身依舊在 `#results-head` 的 `flex-wrap:wrap` 規則下自然換行；未额外用瀏覽器實機截圖驗證本輪窄螢幕效果（本次任務環境沒有提供瀏覽器/Playwright 工具），建議 Ray 或 Dino 直接開頁面在手機寬度模擬看一次分類頁籤（8–10 個)＋排序控制項＋meta 多行同時出現時是否擁擠。
+- 對比：本輪沒有引入任何新色值，`.meta-metric`／`#sort-toggle .tab.active` 皆沿用既有 token，無新增對比風險。
+
+### 後續建議
+- 給 Ray：建議做一次瀏覽器 regression（含 375px 窄螢幕）——重點測「排序切換」點擊後清單是否確實依 rising/comments 重新排序、分類頁籤在 8–10 個看板主題下的多行 wrap 是否正常、meta 行含新的 `.meta-metric` span 後文字過濾（`#filter-box`）是否仍正確比對（過濾邏輯讀的是 `r.title`/`r.author`/`r.board`/`r.preview` 原始資料而非 DOM 文字，理論上不受影響，但建議實測收斂風險）。
+- 給 Andy：請記錄本輪「排序切換脫離分類 pill 視覺、改用凹槽分段控制項」與「meta 行用 `.meta-metric` 強調排序依據數字」的設計決策；日後若熱門功能再加其他排序維度（例如按讚數、發文時間），優先沿用 `#sort-toggle` 這套凹槽分段控制項語言，而不是繼續加 `.tab` outline pill。
+- 給 Bevis：本輪為純視覺層級審查與局部收斂，未涉及功能或產品方向判斷，無需審視。
