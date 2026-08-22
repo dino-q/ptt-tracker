@@ -13,7 +13,7 @@
 | `PTTClient.article(url)` | 抓單篇文章，去推文/標頭/簽名檔，回 `Article` | |
 | `clean_ptt_body(text)` | 清洗 PTT 內文（發信站、簽名檔、空行正規化） | |
 | `PTTClient.hotboards(top)` | 即時熱門看板排行（人氣數） | 🆕 2026-08-22 |
-| `PTTClient.article(url, include_comments)` | include_comments=True 會在內文後附推文留言區塊 | 預設 False 不變 |
+| `PTTClient.article(url, include_comments)` | include_comments=True 會在內文後附推文留言區塊；回傳的 Article.push_summary 一律帶推/噓/→/total/users 統計 | 預設 False 不變 |
 | `SearchItem.push` | 板面列表推文數欄位（爆/99/X1） | 🆕 2026-08-22，search/latest 都會帶 |
 | `parse_board(text)` / `parse_author(text)` | 從白話文抽板名/作者（規則式） | server.py 的 `parse_request` 有更完整版 |
 | `safe_filename(s)` | 檔名消毒 | |
@@ -36,7 +36,9 @@
 | `parse_request(text)` | 白話 → 結構化 task（意圖 scan/author_export/hot＋板名/關鍵字/天數） | UI 會顯示解析結果讓使用者修正後才執行 |
 | `run_task(task, job)` | scan 意圖：搜尋＋最新頁 → 去重 → 日期過濾 → 關鍵字組判定（必要時讀內文）→ 結果 | |
 | `run_author_export(task, job)` | author_export 意圖：♻️ 調用 export_author_creations＋進度/取消 | 🆕 2026-08-22 |
-| `run_hot(task, job)` | hot 意圖：指定板高推文 or 人氣前 N 板跨板掃描，依推文數排序 | 🆕 2026-08-22 |
+| `run_hot(task, job)` | hot 意圖 v2：recommend: 搜尋候選（快板熱文不漏）→ Re: 討論串聚合 → 前 40 篇讀留言統計 → 衝火速度排序（留言÷(時+2)^1.6） | 2026-08-22 v2 |
+| `hot_cats(board)` / `HOT_BOARD_CATEGORY` | 熱門文分類＝看板主題（八卦時事/棒球…），未知板用板名；config `hot_board_categories` 可覆蓋 | 🆕 與省錢的通路標籤是兩套 |
+| `_parse_article_dt` / `_thread_key` | 文章時間解析／討論串聚合鍵 | 🆕 |
 | `run_download(task, job)` | download 意圖：指定 urls 逐篇抓全文（可含留言）合併 TXT，job.file 給下載端點 | 🆕 2026-08-22 |
 | `run_job(task, job)` | 意圖分流入口（start_job 用），完成後寫追蹤項快取 | 🆕 |
 | `classify(title)` / `CATEGORY_RULES` | 標題分類標籤（四大超商/超市量販/網購電商/餐飲美食/支付回饋，可多類） | config.json `categories` 可覆蓋 |

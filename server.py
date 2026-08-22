@@ -184,8 +184,9 @@ def default_tracks() -> list[dict]:
                 "intent": "hot",
                 "board": "",
                 "hot_boards": 10,
-                "min_push": 50,
-                "scan_latest_pages": 1,
+                "min_push": 30,
+                "search_pages": 2,
+                "max_detail": 40,
                 "days": 2,
             },
         },
@@ -298,11 +299,12 @@ def parse_request(text: str) -> dict:
                 "intent": "hot",
                 "board": board or "",
                 "hot_boards": 10,
-                "min_push": 50,
-                "scan_latest_pages": 1 if not board else 3,
+                "min_push": 30,
+                "search_pages": 2 if not board else 3,
+                "max_detail": 40,
                 "days": min(days, 2) if not days_hit else days,
             },
-            "summary": "熱門討論掃描（依推文數排序，爆=100）",
+            "summary": "熱門討論掃描（衝火速度排序，爆=100）",
         }
 
     # 情境一：超商 × 咖啡/飲料優惠（雙關鍵字組判定）
@@ -414,6 +416,50 @@ def push_score(push: str) -> int:
         return int(push)
     except ValueError:
         return 0
+
+
+# 熱門文章的分類走「看板主題」，跟省錢優惠的通路標籤是兩套。
+# 可在 config.json 以 "hot_board_categories": {"板名": "分類"} 覆蓋/擴充。
+HOT_BOARD_CATEGORY: dict[str, str] = {
+    "Gossiping": "八卦時事", "HatePolitics": "政黑", "Militarylife": "軍旅",
+    "Stock": "股票理財", "home-sale": "房產", "creditcard": "信用卡", "Finance": "股票理財",
+    "Baseball": "棒球", "Elephants": "棒球", "Lions": "棒球", "Monkeys": "棒球", "Dragons": "棒球",
+    "basketballTW": "籃球", "NBA": "籃球", "SportLottery": "運彩", "FITNESS": "健身",
+    "LoL": "遊戲電競", "Steam": "遊戲電競", "PlayStation": "遊戲電競", "NSwitch": "遊戲電競",
+    "C_Chat": "動漫遊戲", "miHoYo": "遊戲電競", "TypeMoon": "動漫遊戲",
+    "movie": "影視", "KoreaDrama": "影視", "TaiwanDrama": "影視", "China-Drama": "影視",
+    "KR_ENTERTAIN": "影視", "KoreaStar": "影視", "Japandrama": "影視", "EAseries": "影視",
+    "Lifeismoney": "省錢消費", "e-shopping": "省錢消費", "e-coupon": "省錢消費",
+    "MobileComm": "3C", "PC_Shopping": "3C", "iOS": "3C", "Android": "3C",
+    "Boy-Girl": "感情", "marriage": "感情", "WomenTalk": "閒聊", "Tech_Job": "工作職場",
+    "Salary": "工作職場", "Soft_Job": "工作職場",
+    "sex": "西斯", "Beauty": "表特", "joke": "笑話", "StupidClown": "笨版", "marvel": "媽佛",
+    "car": "汽機車", "biker": "汽機車", "MakeUp": "美妝", "BabyMother": "親子",
+    "Japan_Travel": "旅遊", "Food": "美食", "cookclub": "美食",
+}
+HOT_BOARD_CATEGORY.update({
+    str(k): str(v) for k, v in (CONFIG.get("hot_board_categories") or {}).items()
+})
+
+
+def hot_cats(board: str) -> list[str]:
+    """熱門文的分類＝看板主題；沒對照到的板直接用板名當分類。"""
+    return [HOT_BOARD_CATEGORY.get(board, board)]
+
+
+def _parse_article_dt(s: str) -> datetime | None:
+    """文章頁的時間字串（例：Wed Aug 20 12:34:56 2026）。"""
+    try:
+        return datetime.strptime((s or "").strip(), "%a %b %d %H:%M:%S %Y")
+    except Exception:
+        return None
+
+
+def _thread_key(title: str) -> str:
+    """Re:/Fw: 與 [分類] 去掉後的標題，當討論串聚合鍵。"""
+    t = re.sub(r"^\s*(?:Re|Fw)\s*:\s*", "", title, flags=re.I)
+    t = re.sub(r"^\s*\[[^\]]+\]\s*", "", t)
+    return re.sub(r"\s+", "", t).lower()
 
 
 JOBS: dict[str, dict] = {}
@@ -616,13 +662,19 @@ def run_author_export(task: dict, job: dict) -> None:
 
 
 def run_hot(task: dict, job: dict) -> None:
-    """熱門討論：指定板＝該板高推文文章；沒指定板＝人氣前 N 板各掃最新頁，依推文數排序。"""
+    """熱門討論 v2：
+    - 候選用 PTT 原生 recommend: 搜尋（快板如八卦板的熱文會沉到深頁，掃最新頁抓不到）
+    - Re:/Fw: 同主題聚合成討論串，取最高推那篇當代表
+    - 前 max_detail 篇進文章頁統計總留言數，算「衝火速度」＝留言數/(小時+2)^1.6
+    - 分類＝看板主題（hot_cats），與省錢優惠的通路標籤是兩套
+    """
     try:
         client = PTTClient(delay=float(task.get("delay", 0.4)))
         board = (task.get("board") or "").strip()
-        min_push = int(task.get("min_push", 50))
-        pages = max(1, int(task.get("scan_latest_pages", 1)))
+        min_push = int(task.get("min_push", 30))
         days = int(task.get("days") or 0)
+        max_detail = int(task.get("max_detail", 40))
+        search_pages = max(1, int(task.get("search_pages", 2)))
         today = datetime.now()
 
         if board:
@@ -635,47 +687,90 @@ def run_hot(task: dict, job: dict) -> None:
                 raise RuntimeError("抓不到熱門看板排行。")
             boards = [b["board"] for b in hot]
             job_log(job, f"人氣前 {len(boards)} 板：{'、'.join(boards)}")
-            note = f"全站人氣前 {len(boards)} 板，推文數 ≥ {min_push}（爆=100）"
+            note = f"全站人氣前 {len(boards)} 板，推文數 ≥ {min_push}"
 
-        results: list[dict] = []
+        # 候選收集：recommend 搜尋
+        candidates: list[dict] = []
+        seen: set[str] = set()
         ok_boards = 0
         for i, b in enumerate(boards, 1):
             if job["cancel"]:
                 raise InterruptedError
             with _jobs_lock:
                 job["progress"] = {"done": i, "total": len(boards)}
-            job_log(job, f"掃描 {b} 最新 {pages} 頁")
+            job_log(job, f"搜尋 {b} 推文數 ≥ {min_push} 的文章")
             try:
-                items = client.latest_board_posts(b, pages=pages, max_posts=120)
+                items = client.search(b, f"recommend:{min_push}",
+                                      max_pages=search_pages, max_posts=60)
                 ok_boards += 1
             except Exception as exc:
-                job_log(job, f"掃描 {b} 失敗：{exc}")
+                job_log(job, f"搜尋 {b} 失敗：{exc}")
                 continue
             for it in items:
-                score = push_score(it.push)
-                if score < min_push:
+                if it.url in seen:
                     continue
+                seen.add(it.url)
                 dt = parse_list_date(it.date_text, today)
                 if days and dt and (today - dt).days > days:
                     continue
-                results.append({
+                candidates.append({
                     "title": it.title,
                     "author": it.author,
                     "date": f"{dt:%Y-%m-%d}" if dt else (it.date_text or "").strip(),
                     "url": it.url,
-                    "matched": [],
-                    "preview": "",
                     "push": it.push,
-                    "score": score,
+                    "score": push_score(it.push),
                     "board": b,
-                    "cats": classify(it.title),
                 })
 
         if ok_boards == 0:
             raise RuntimeError("所有看板都掃描失敗，請確認網路或板名。")
-        results.sort(key=lambda r: r.get("score", 0), reverse=True)
-        results = results[:120]
-        job_log(job, f"完成：{len(results)} 篇熱門文章")
+
+        # 討論串聚合：同主題取最高推那篇當代表
+        threads: dict[str, list[dict]] = {}
+        for c in candidates:
+            threads.setdefault(_thread_key(c["title"]), []).append(c)
+        reps: list[dict] = []
+        for group in threads.values():
+            rep = max(group, key=lambda c: c["score"])
+            rep["thread"] = len(group)
+            reps.append(rep)
+        reps.sort(key=lambda c: c["score"], reverse=True)
+        detail = reps[:max_detail]
+        job_log(job, f"候選 {len(candidates)} 篇／{len(reps)} 個討論串，讀取前 {len(detail)} 篇留言統計")
+
+        results: list[dict] = []
+        now = datetime.now()
+        for i, c in enumerate(detail, 1):
+            if job["cancel"]:
+                raise InterruptedError
+            with _jobs_lock:
+                job["progress"] = {"done": i, "total": len(detail)}
+            try:
+                art = client.article(c["url"])
+            except Exception as exc:
+                job_log(job, f"讀取失敗：{c['title'][:30]}（{exc}）")
+                continue
+            ps = art.push_summary or {}
+            comments = int(ps.get("total", 0))
+            dt = _parse_article_dt(art.date_text)
+            age_h = max((now - dt).total_seconds() / 3600.0, 0.1) if dt else None
+            results.append({
+                **c,
+                "date": f"{dt:%m-%d %H:%M}" if dt else c["date"],
+                "matched": [],
+                "preview": "",
+                "cats": hot_cats(c["board"]),
+                "comments": comments,
+                "users": ps.get("users", 0),
+                "boo": ps.get("噓", 0),
+                "per_hour": round(comments / age_h, 1) if age_h else None,
+                "rising": round(comments / ((age_h + 2) ** 1.6), 2) if age_h else 0.0,
+            })
+
+        results.sort(key=lambda r: r.get("rising") or 0, reverse=True)
+        note += f"；預設依衝火速度排序（留言數÷時間衰減），可切換總留言數"
+        job_log(job, f"完成：{len(results)} 篇（含留言統計）")
         with _jobs_lock:
             job["results"] = results
             job["note"] = note

@@ -36,12 +36,28 @@ def main() -> None:
         assert page.locator("#items .item").count() == n_all
         print(f"PASS 分類頁籤：全部 {n_all} -> 四大超商 {n_store} -> 還原")
 
-        # 3) 熱門文章頁：快取即看＋看板標示
+        # 3) 熱門文章頁：快取即看＋看板標示＋排序切換行為
         page.locator('.viewbtn[data-view="hot"]').click()
         expect(page.locator("#note")).to_contain_text("人氣前", timeout=10_000)
         metas = page.locator("#items .item .meta").all_inner_texts()
         assert any("板" in m for m in metas), "熱門結果應標示來源看板"
-        print(f"PASS 熱門頁快取即看：{page.locator('#items .item').count()} 篇")
+        assert any("留言" in m for m in metas), "熱門結果應顯示留言數"
+        print(f"PASS 熱門頁快取即看：{page.locator('#items .item').count()} 篇（含留言統計）")
+
+        import re as _re
+        expect(page.locator("#sort-toggle")).to_be_visible()
+        page.locator("#sort-toggle .tab", has_text="總留言數").click()
+        nums = []
+        for m in page.locator("#items .item .meta").all_inner_texts():
+            mm = _re.search(r"留言 (\d+)", m)
+            if mm:
+                nums.append(int(mm.group(1)))
+        assert nums and nums == sorted(nums, reverse=True), f"總留言排序應遞減：{nums[:6]}"
+        print("PASS 排序切換：總留言數遞減")
+        # 回省錢頁排序切換要隱藏
+        page.locator('.viewbtn[data-view="money"]').click()
+        expect(page.locator("#sort-toggle")).to_be_hidden()
+        page.locator('.viewbtn[data-view="hot"]').click()
 
         # 4) 白話解析導向作者下載頁
         page.fill("#ask-input", "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔")

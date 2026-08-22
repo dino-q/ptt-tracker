@@ -70,6 +70,8 @@ class Article:
     date_text: str
     url: str
     body: str
+    # 推文統計：{"推":n,"噓":n,"→":n,"total":n,"users":不重複留言人數}
+    push_summary: Optional[dict] = None
 
 
 class PTTClient:
@@ -227,22 +229,35 @@ class PTTClient:
             if tag and val:
                 meta[tag.get_text(strip=True)] = val.get_text(" ", strip=True)
 
-        # 留言（推文）要在 decompose 前先收
+        # 留言（推文）統計與內文要在 decompose 前先收
         comments: list[str] = []
-        if include_comments:
-            for p in main.select(".push"):
-                tag_el = p.select_one(".push-tag")
-                uid_el = p.select_one(".push-userid")
+        push_summary = {"推": 0, "噓": 0, "→": 0, "total": 0, "users": 0}
+        users: set[str] = set()
+        for p in main.select(".push"):
+            tag_el = p.select_one(".push-tag")
+            uid_el = p.select_one(".push-userid")
+            tag_text = tag_el.get_text(strip=True) if tag_el else ""
+            if tag_text.startswith("推"):
+                push_summary["推"] += 1
+            elif tag_text.startswith("噓"):
+                push_summary["噓"] += 1
+            else:
+                push_summary["→"] += 1
+            push_summary["total"] += 1
+            if uid_el:
+                users.add(uid_el.get_text(strip=True))
+            if include_comments:
                 content_el = p.select_one(".push-content")
                 dt_el = p.select_one(".push-ipdatetime")
                 line = " ".join(filter(None, [
-                    tag_el.get_text(strip=True) if tag_el else "",
+                    tag_text,
                     (uid_el.get_text(strip=True) if uid_el else "")
                     + (content_el.get_text(" ", strip=True) if content_el else ""),
                     dt_el.get_text(strip=True) if dt_el else "",
                 ])).strip()
                 if line:
                     comments.append(line)
+        push_summary["users"] = len(users)
 
         for selector in [
             ".article-metaline",
@@ -267,6 +282,7 @@ class PTTClient:
             date_text=meta.get("時間", ""),
             url=url,
             body=text,
+            push_summary=push_summary,
         )
 
 
