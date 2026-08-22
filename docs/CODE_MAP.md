@@ -46,7 +46,7 @@
 | 快取層 `read_cache/write_cache_if_track/cache_summary` | 追蹤項結果快取 `data/cache/{id}.json`（原子寫入） | 開頁即看不用重掃 |
 | `mark_new_results(results, old)` | 跟上一版比對標 new=True（UI 顯「新」徽章）；無舊資料不標 | 🆕 build_site 線上版同用 |
 | `refresh_auto_tracks(force)` / `auto_refresh_loop()` | auto 追蹤項自動重掃（啟動補掃＋每15分檢查，快取 6 小時過期） | `--refresh-only` 給每日排程 `PTT_Assistant_DailyCache` 用 |
-| `export_results_txt(name, results)` | 掃描結果 → output/*.txt（含看板/推文欄位） | |
+| ~~`export_results_txt`~~ | 已移除（2026-08-22），全文匯出走 `run_download` | |
 | Job 機制（`JOBS` dict + thread） | 背景執行＋進度輪詢＋取消 | `/api/run` → `/api/jobs/<id>` |
 
 ## web/index.html（🆕 UI 單檔，無框架）

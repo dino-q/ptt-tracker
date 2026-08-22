@@ -224,6 +224,7 @@ function applyFilters(d) {
       const badge = document.createElement("span");
       badge.className = "badge-new";
       badge.textContent = "新";
+      badge.title = r.board ? "新進榜（上次更新時不在榜上）" : "上次更新後的新文章";
       h.appendChild(badge);
     }
     const a = document.createElement("a");

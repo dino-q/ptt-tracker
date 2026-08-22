@@ -31,7 +31,8 @@ def fetch_old(name: str) -> dict | None:
     """抓上一版線上資料：標「新」與沿用摘要用。抓不到（首次/斷網）就當沒有。"""
     try:
         with urllib.request.urlopen(f"{LIVE_BASE}/{name}.json", timeout=15) as r:
-            return json.loads(r.read().decode())
+            data = json.loads(r.read().decode())
+        return data if isinstance(data, dict) else None
     except Exception:
         return None
 

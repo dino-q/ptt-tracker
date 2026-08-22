@@ -1209,7 +1209,8 @@ class Handler(BaseHTTPRequestHandler):
                     "status": job["status"],
                     "log": job["log"][-40:],
                     "progress": dict(job["progress"]),
-                    "results": job["results"] if job["status"] == "done" else [],
+                    # 淺拷貝每筆：序列化期間別依賴「C 編碼器不放 GIL」這種實作細節
+                    "results": [dict(r) for r in job["results"]] if job["status"] == "done" else [],
                     "note": job["note"],
                     "error": job["error"],
                     "kind": job.get("kind", "scan"),

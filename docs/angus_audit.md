@@ -374,3 +374,49 @@ H1／H2／H3／H4 與 locale 五項全部照處方修正並實測驗收，新增
 本輪熱門 v2 的完整結論：時區事故已修並推送、缺席的兩個成因（快板熱文沉深頁→recommend 搜尋、跨板同名誤併→key 帶板名）都堵住、時間計算壞掉現在會出聲（job log ＋ Action 紅燈）。剩下的唯一人工確認點還是那個：台灣 23:07 之後看一眼線上 `per_hour` 是否落回合理區間。
 
 環境交還：本輪只做離線解析測試與 2 次 PTT 搜尋（各 1 頁）唯讀探測，沒有起長駐 process、沒有寫入 `data/`／`output/`；scratchpad 內我的檔案已刪（其餘 `fill_*.py`／`test_hot_v2.py` 不是我的，未動）。
+
+---
+
+# 批次 234 審查 2026-08-22（Angus）
+
+範圍：`9952fea`（7 檔 +119/-49）。working tree clean、`origin/master..HEAD` 為空＝已推送。
+方法：讀 diff ＋ 追鎖序與 CPython json 編碼行為 ＋ 抓**線上實際部署的 JSON** 量測體積／new 比例／摘要長度 ＋ grep 殘留呼叫。
+
+## 先結掉上一輪的待確認項
+
+線上 `hot.json`（updated_at 22:45，時區修好後的第一批）：**`per_hour` max=379.5、中位=24.8、min=2.3、>2000 者 0 筆**（事故當時 max=14690）。rising 前五名的 per_hour 依序 379.5／251.2／198.8／164.5／144.8，與「LIVE 直播文 200–400／小時」的預期吻合 → **時區修法在生產環境確認生效**，這條可以關掉了。
+
+## 你點名的 5 點
+
+1. **`write_cache_if_track` 新鎖序 — 安全，但有一個顯示層時序瑕疵**
+   - 結構正確的地方：`read_cache()` 的檔案 I/O 已在**鎖外**（維持 v2.1 的修法，沒有回頭把 I/O 塞進全域鎖）；無巢狀取鎖 → 無 deadlock；`_TRACK_ID_RE` 檢查提前到讀檔前。
+   - **會不會讀到「標了一半」／拋例外：不會。** `/api/jobs` 的快照雖然共用同一個 `job["results"]` list 物件、`json.dumps` 在鎖外執行，但 `_json()` 用的是預設參數（`indent=None`、`default=None`、`sort_keys=False`），CPython 會走 **C 編碼器 `c_make_encoder`**（`ensure_ascii=False` 不影響選擇），整趟編碼不釋放 GIL，其他 Python thread 無法插進去改 dict → 既不會 `dictionary changed size during iteration`，也不會出現半標記的 payload。**但這是靠 CPython 實作細節保證的**：哪天有人為了好讀在 `_json()` 加上 `indent=2`，就會退回純 Python 編碼器（逐項 yield，會被插隊），那時這個競態就真的存在。免疫成本很低：GET 快照改 `[dict(r) for r in job["results"]]`（淺拷貝每個項目）即可，建議順手加上。
+   - ⚠️ **真正找到的問題是時序不是競態**：標記發生在 `status="done"` **之後**（run_* 先寫 done，run_job 才呼叫 write_cache_if_track，中間還夾一次 `read_cache` 的檔案 I/O）。若前端那 900ms 的輪詢剛好落在這幾毫秒的窗裡，它拿到的是 **status=done 但沒有 new 標記**的結果，寫進 `VIEW_DATA` 後就 `endJob()` 停止輪詢 → **這次掃描的「新」徽章不會出現，要重新整理或改點快取才看得到**。機率低（毫秒 vs 900ms）但確定存在。修法方向：把標記移到 status 翻成 done 之前（例如 run_job 先算好 new 再讓 run_* 收尾），或前端在追蹤項掃描完成後改讀一次 `/api/cache/<id>`。
+2. **`fetch_old` 的壞資料路徑 — 兩種都安全**：Pages 回 **404** → `urlopen` 拋 `HTTPError`（OSError 子類）→ 被 `except Exception` 接住回 None；回 **200 但是 HTML**（自訂 404 頁）→ `json.loads` 拋 `JSONDecodeError` → 同樣回 None；timeout 15s 也一樣。首次部署／斷網 → None → `mark_new_results` 直接 return（不標）、`fill_previews` 全部視為新文（受 budget 保護）✓。
+   ⚠️ 殘留一種：JSON 合法但**不是 dict**（例如檔案被寫成 `[]`）→ `(old or {}).get("results")` 對 list 呼叫 `.get` 會 `AttributeError` → build_site 整個炸掉、Action 紅燈。是 fail-loud 不是靜默壞資料，可接受；但一行 `if not isinstance(old, dict): return None` 就免疫，建議補。
+   `fill_previews` 本體乾淨：budget 只計「實際抓取」不計沿用（請求量硬上限 40）；抓失敗 `pass` 後該篇沒有 preview，而 `old_prev` 只收「有 preview」的項目 → **下一輪會自動重試**（自癒）；client 延遲建立；900 字截斷有實測（線上最長 913＝900＋截短提示，40/40 與 36/36 都在界內）。
+3. **體積量級 — 不需要處理**。實測：線上 `hot.json` 53.9KB（加摘要前約 3–4KB）、`money.json` 29.9KB；本機 `/api/cache/hot-now` 目前 15.5KB（下一次 hot 掃描帶摘要後約 40–50KB）。摘要中位長度 hot 481 字、money 196 字。Pages 有 gzip，實際傳輸約 1/4；一份 PTT 網頁本身就比這大。`/api/jobs` 完成時的一次性 payload 同步變大（約 50KB）也無妨——注意 `results` 只在 `status=="done"` 才送，掃描中的輪詢 payload 沒變重，這點原設計就對了。
+4. **`/api/export` 殘留 — 程式面乾淨，文件面有一處要修**。`grep` 全 repo：`server.py:1086` 是移除註解、`docs/CODE_MAP.md:71` 已標「已移除」——都正確。**但 `docs/CODE_MAP.md:49` 還把 `export_results_txt(name, results)` 列為可沿用函式**。依全域規則「寫新程式前先查 CODE_MAP、預設沿用既有實作」，這一行等於給下一個 agent 埋一個「呼叫不存在的函式」的陷阱。順手刪掉或照 71 行的樣式劃掉。UI（web／site）、tests、README 都沒有殘留呼叫 ✓。
+5. **`new` 語意 — 我的判斷：維持 url diff，不要加狀態，但把標籤講清楚（並可加一行年齡護欄）**
+   - 省錢頁：清單本來就是「最近 3 天的貼文」，url diff＝真的新貼文 ✓ 語意正確。
+   - 熱門頁：清單是「前 40 名排行榜」，所以 url diff 的正確讀法是**「新進榜」**而不是「新發文」；掉出再回榜會被再標一次。我認為**可接受**，理由是：(a) 每筆旁邊就有發文時間，使用者能自己判斷；(b) 實測稀疏度健康——線上 22:45 那批 hot 只有 **1/40（2%）** 標新、money **0/36**，徽章沒有淹掉版面，作為「這輪有什麼變化」的提示是有效的；(c) 加時間窗會引入狀態或誤殺（半夜低流量時可能整輪無新）。
+   - 建議只做兩件低成本的事：熱門頁把 title/tooltip 寫成「新進榜」與省錢的「新文章」區分；若還想殺掉「三天前的舊文回榜也標新」這種誤導，用手上已有的欄位加一行即可（`r.get("ts")` 在 24 小時內才標）。
+   - 另外我確認了**不會累積**：`mark_new_results` 只從舊資料取 `url` 集合，舊檔裡的 `new: true` 不會回流；新結果每輪都是乾淨重建 ✓。
+   - 小提醒：`fetch_old` 抓的是 Pages CDN（有 `max-age`），偶爾可能拿到再上一輪的快照 → 同一篇的徽章可能多掛一輪。純顯示層，不必處理，知道就好。
+
+## 已驗證乾淨（其他）
+
+- ✅ `run_hot` 帶出 preview 是**零額外請求**（就在既有的 `client.article` 之後做字串處理），截斷規則與 web 版一致；H2 的「讀取失敗保留項」因為沒進過文章頁所以沒有 preview——**site 版用 `if (r.preview)` 包住整組摘要按鈕**，不會出現點了沒反應的死按鈕；web 版則是照舊按需打 `/api/article`，兩邊都對。
+- ✅ 徽章渲染兩檔都是 `document.createElement` ＋ `badge.textContent = "新"`（靜態字串，且資料值一律走 textContent）→ 無 XSS 面。
+- ✅ `mark_new_results` 本身：`if not old_results: return`（首輪不全標）、只認 `r.get("url")` 為真的項目、只加 `new=True` 不刪不改其他欄位 → 對舊快取／舊線上 JSON 完全向下相容（沒有 `new` 欄位的資料只是不顯示徽章）。
+- ✅ build_site 呼叫順序合理：`mark_new` 用「還沒補摘要」的結果比對 url（與摘要無關），`fill_previews` 再補；hot 不呼叫 `fill_previews`（摘要已在掃描時取得），沒有重複爬取。
+- ✅ 移除 `export_results_txt` 沒有動到 `/api/download`／`run_download` 這條現行下載路徑；`safe_filename` 仍被 run_download 與作者匯出使用（不是孤兒函式）。
+- ✅ `ptt_tool.run_natural_language` 只加註解、零行為變更（v1 CLI 凍結宣告與 CODE_MAP 一致）。
+
+## VERDICT（批次 234）
+
+`VERDICT: clean (blockers) — safe to deliver`
+
+blocker 0；⚠️ 4 項全屬 polish／文件層：**CODE_MAP:49 的 `export_results_txt` 幽靈條目（建議這輪順手刪，它會誤導下一個 agent）**、new 徽章在「剛跑完那一次」可能因毫秒級時序沒出現、`fetch_old` 對非 dict JSON 缺 `isinstance` 護欄、熱門徽章語意建議標成「新進榜」。另附一則預防性建議：`_json()` 若日後加 `indent`，請同時把 `/api/jobs` 的 results 改成淺拷貝快照，否則現在靠 C 編碼器不釋放 GIL 撐住的那個競態會真的浮出來。
+
+環境交還：本輪全部唯讀——3 次線上 JSON 讀取 ＋ 1 次本機 `/api/cache`，沒有對 PTT 發任何請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 我的暫存檔已刪。

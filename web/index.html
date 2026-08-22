@@ -446,6 +446,7 @@ const $ = (id) => document.getElementById(id);
 let META = { tracks: [], boards: [], categories: [] };
 let JOB = null;            // 進行中 job id（"pending" = 送出中佔位）
 let JOB_VIEW = null;       // 這個 job 屬於哪個功能頁
+let JOB_TRACK = null;      // 追蹤項 id（完成後回讀快取拿「新」標記——標記寫在 done 之後，輪詢可能搶先）
 let JOB_NAME = "PTT掃描結果";
 let POLL = null;
 let POLL_FAILS = 0;
@@ -577,6 +578,7 @@ async function runTask(task, trackId, view, name) {
     POLL_FAILS = 0;
     JOB = j.job_id;
     JOB_VIEW = view;
+    JOB_TRACK = trackId || null;
     JOB_NAME = name || "PTT掃描結果";
     $("progress").style.display = "block";
     $("log").textContent = "";
@@ -595,7 +597,7 @@ function setRunButtons(enabled) {
 }
 
 function endJob() {
-  clearInterval(POLL); POLL = null; JOB = null; JOB_VIEW = null; POLL_FAILS = 0;
+  clearInterval(POLL); POLL = null; JOB = null; JOB_VIEW = null; JOB_TRACK = null; POLL_FAILS = 0;
   setRunButtons(true);
 }
 
@@ -609,7 +611,7 @@ async function pollJob() {
     const p = j.progress || {};
     if (p.total) $("bar-fill").style.width = Math.round(100 * p.done / p.total) + "%";
     if (j.status !== "running") {
-      const view = JOB_VIEW, name = JOB_NAME;
+      const view = JOB_VIEW, name = JOB_NAME, trackId = JOB_TRACK;
       endJob();
       if (j.status === "done") {
         $("bar-fill").style.width = "100%";
@@ -621,6 +623,18 @@ async function pollJob() {
           VIEW_DATA[view] = { results: j.results, note: j.note || "", name };
           refreshMetaQuiet();
           switchView(view);
+          if (trackId) {
+            // 「新」標記在 done 之後才寫入快取，稍後回讀一次補上徽章
+            setTimeout(async () => {
+              try {
+                const c = await api("/api/cache/" + trackId);
+                if (VIEW_DATA[view] && VIEW_DATA[view].name === name) {
+                  VIEW_DATA[view].results = c.results || VIEW_DATA[view].results;
+                  if (VIEW === view) renderCurrentView();
+                }
+              } catch (e) { /* 快取還沒好就算了，重新整理會看到 */ }
+            }, 600);
+          }
           if (j.file) offerDownload(j.file);  // 作者匯出：結果清單＋直接下載 TXT
           $("results").scrollIntoView({ behavior: "smooth", block: "start" });
         }
@@ -878,6 +892,7 @@ function renderItems(list) {
       const badge = document.createElement("span");
       badge.className = "badge-new";
       badge.textContent = "新";
+      badge.title = r.board ? "新進榜（上次更新時不在榜上）" : "上次更新後的新文章";
       h.appendChild(badge);
     }
     const a = document.createElement("a");
