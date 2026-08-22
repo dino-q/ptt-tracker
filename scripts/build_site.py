@@ -51,6 +51,13 @@ def main() -> None:
     print(f"money.json：{len(money['results'])} 篇")
 
     hot = run(run_hot, dict(tracks["hot-now"]["task"]))
+    # 哨兵：時間計算壞掉時寧可讓 Action 紅燈，不要安靜發佈壞資料（2026-08-22 UTC 時區事故的教訓）
+    stats = [r for r in hot["results"] if r.get("comments") is not None]
+    if stats and all((r.get("rising") or 0) == 0 for r in stats):
+        raise SystemExit("rising 全為 0：文章時間解析疑似失敗，拒絕發佈")
+    per_hours = sorted(r["per_hour"] for r in stats if r.get("per_hour"))
+    if per_hours and per_hours[len(per_hours) // 2] > 2000:
+        raise SystemExit(f"per_hour 中位數異常（{per_hours[len(per_hours) // 2]}）：疑似時區/年齡計算錯誤，拒絕發佈")
     (out_dir / "hot.json").write_text(json.dumps({
         "updated_at": now,
         "note": hot["note"],

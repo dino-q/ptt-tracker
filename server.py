@@ -459,11 +459,23 @@ def hot_cats(board: str) -> list[str]:
     return [HOT_BOARD_CATEGORY.get(board, board)]
 
 
+_MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+           "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
+
+
 def _parse_article_dt(s: str) -> datetime | None:
-    """文章頁的時間字串（例：Wed Aug 20 12:34:56 2026）。"""
+    """文章頁的時間字串（例：Wed Aug 20 12:34:56 2026）。
+    不用 strptime %a/%b：那依賴 LC_TIME，哪天有人 setlocale 就整批解析失敗。"""
+    m = re.search(r"([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(\d{4})", s or "")
+    if not m:
+        return None
+    mon = _MONTHS.get(m.group(1))
+    if not mon:
+        return None
     try:
-        return datetime.strptime((s or "").strip(), "%a %b %d %H:%M:%S %Y")
-    except Exception:
+        return datetime(int(m.group(6)), mon, int(m.group(2)),
+                        int(m.group(3)), int(m.group(4)), int(m.group(5)))
+    except ValueError:
         return None
 
 
@@ -683,7 +695,8 @@ def run_hot(task: dict, job: dict) -> None:
     try:
         client = PTTClient(delay=float(task.get("delay", 0.4)))
         board = (task.get("board") or "").strip()
-        min_push = int(task.get("min_push", 30))
+        # H4：PTT 對 recommend:0 / 負值會直接忽略條件，server 端夾住下限並在收集時複驗
+        min_push = max(1, int(task.get("min_push", 30)))
         days = int(task.get("days") or 0)
         max_detail = int(task.get("max_detail", 40))
         search_pages = max(1, int(task.get("search_pages", 2)))
@@ -722,6 +735,8 @@ def run_hot(task: dict, job: dict) -> None:
                 if it.url in seen:
                     continue
                 seen.add(it.url)
+                if push_score(it.push) < min_push:  # 不信任 PTT 一定有套用 recommend 條件
+                    continue
                 dt = parse_list_date(it.date_text, today)
                 if days and dt and (today - dt).days > days:
                     continue
@@ -738,10 +753,10 @@ def run_hot(task: dict, job: dict) -> None:
         if ok_boards == 0:
             raise RuntimeError("所有看板都掃描失敗，請確認網路或板名。")
 
-        # 討論串聚合：同主題取最高推那篇當代表
+        # 討論串聚合：同板同主題取最高推那篇當代表（key 帶板名，跨板同名文不誤併）
         threads: dict[str, list[dict]] = {}
         for c in candidates:
-            threads.setdefault(_thread_key(c["title"]), []).append(c)
+            threads.setdefault(f"{c['board']}|{_thread_key(c['title'])}", []).append(c)
         reps: list[dict] = []
         for group in threads.values():
             rep = max(group, key=lambda c: c["score"])
@@ -753,6 +768,8 @@ def run_hot(task: dict, job: dict) -> None:
 
         results: list[dict] = []
         now = now_tw()
+        fetch_fail = 0
+        dt_fail = 0
         for i, c in enumerate(detail, 1):
             if job["cancel"]:
                 raise InterruptedError
@@ -761,11 +778,17 @@ def run_hot(task: dict, job: dict) -> None:
             try:
                 art = client.article(c["url"])
             except Exception as exc:
-                job_log(job, f"讀取失敗：{c['title'][:30]}（{exc}）")
+                # H2：讀取失敗仍保留該篇（無留言統計），不讓熱文無聲消失
+                job_log(job, f"讀取失敗（保留無統計）：{c['title'][:30]}（{exc}）")
+                fetch_fail += 1
+                results.append({**c, "matched": [], "preview": "",
+                                "cats": hot_cats(c["board"]), "rising": 0.0})
                 continue
             ps = art.push_summary or {}
             comments = int(ps.get("total", 0))
             dt = _parse_article_dt(art.date_text)
+            if dt is None:
+                dt_fail += 1
             age_h = max((now - dt).total_seconds() / 3600.0, 0.1) if dt else None
             results.append({
                 **c,
@@ -778,10 +801,16 @@ def run_hot(task: dict, job: dict) -> None:
                 "boo": ps.get("噓", 0),
                 "per_hour": round(comments / age_h, 1) if age_h else None,
                 "rising": round(comments / ((age_h + 2) ** 1.6), 2) if age_h else 0.0,
+                "ts": dt.timestamp() if dt else None,  # 給前端「最新」排序用
             })
 
+        # H3 哨兵：時間解析大量失敗時排序等於壞掉，要出聲不能靜默
+        if results and dt_fail > len(results) / 2:
+            job_log(job, f"警告：{dt_fail}/{len(results)} 篇文章時間解析失敗，衝火速度排序可能失效")
         results.sort(key=lambda r: r.get("rising") or 0, reverse=True)
-        note += f"；預設依衝火速度排序（留言數÷時間衰減），可切換總留言數"
+        note += "；預設依衝火速度排序（留言數÷時間衰減），可切換總留言數"
+        if fetch_fail:
+            note += f"；{fetch_fail} 篇未取得留言統計"
         job_log(job, f"完成：{len(results)} 篇（含留言統計）")
         with _jobs_lock:
             job["results"] = results

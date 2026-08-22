@@ -292,3 +292,57 @@ blocker 0（v2.1 的 3 個 blocker 全部修掉並實測驗收，F1 留一個非
 若要再挑一輪最划算的：**R3（一行，避免每日快取被窄條件汙染 6 小時）＋ R2（一行，`a.download` 防整個 App 被導走）＋ R1 的 `finally: tmp.unlink`（一行）**。另外提醒明天 08:30 排程跑完後看一眼 `data/refresh.log` 有沒有生出來——F8 的修法目前還沒被真實排程驗證過。
 
 環境交還：本輪只做離線測試（隔離在 scratchpad，已刪）與對 8877 的 HTTP 探測（含 1 篇真實 PTT 文章讀取 ×2，用於驗證留言與本文順序），沒有起任何長駐 process、沒有寫入 `data/` 或 `output/`。
+
+---
+
+# 熱門 v2 審查 2026-08-22（Angus）
+
+範圍：`f5b5f08`（熱門 v2）＋`beff4f5`（Tor 增量）＋審查中追加的 `5e459cc`（UTC 時區修正）。working tree clean，且 `origin/master..HEAD` 為空＝**三個 commit 都已推送**（所以下一輪每小時 Action 會吃到修好的程式）。
+方法：讀三個 commit 的 diff ＋ 離線實測（locale／`_thread_key`／時區算式）＋ 抓 3 篇真實 PTT 文章驗證統計與時間解析 ＋ 對 PTT 實測 `recommend:` 邊界 ＋ **抓線上部署的 `hot.json` 對照**。測完已清乾淨。
+
+## 時區 bug：我獨立重現了，你的修法對症
+
+在收到你 `5e459cc` 的通知之前，我從線上 `https://dino-q.github.io/ptt-tracker/data/hot.json`（updated_at 22:16）抓到同一個症狀並算出根因，兩邊結論一致：
+
+- 線上資料 40 筆中 **16 筆 `per_hour` ≥ 100**，最高 `per_hour=14690.0`（`comments=1469`、發文 08-22 18:54）＝ `comments ÷ 0.1`，正是 `age_h` 撞到 `max(…, 0.1)` 下限的指紋。
+- 同一篇在本機（UTC+8）與模擬 runner（UTC）的對照實測：`age_h 3.43h → per_hour 428.1、rising 97.98` vs `age_h 0.10h → per_hour 14690.0、rising 448.2`。**8 小時內的文章全部拿到同一個分母（(0.1+2)^1.6≈3.19）→ 「正在起飛」實際退化成「總留言數」排序**，而 8 小時以上的文章年齡被少算 8 小時 → 反而被高估。
+- ✅ 修法驗收：`grep datetime\.now\(\) server.py` **零殘留**；`now_tw()` 回 naive 台灣時間，與 `_parse_article_dt`（PTT 印的也是台灣時間、naive）同一個基準，比較正確；本機 `now_tw()` 與 `datetime.now()` 差 1e-06 秒（＝本機行為完全不變）；模擬 UTC 主機時 `now_tw()` 領先 8.00 小時。`TAIPEI` 在這台 Windows 上實際走 fallback `timezone(UTC+08:00)`（無 tzdata），台灣沒有夏令時間所以與 `ZoneInfo("Asia/Taipei")` 等價。
+- ✅ 你問的 `parse_list_date` 交互：`today` 改成台灣今天後**更正確**（PTT 板面的 M/DD 本來就是台灣日期）。舊行為在 Action 的執行窗（台灣 08:07–23:07）剛好沒跨過日界線，所以沒有既存誤判被掩蓋；`dt > today + 1 天 → 視為去年` 的容忍在台灣基準下不變。
+- ⚠️ **待確認**：線上 `hot.json` 目前仍是 22:16 那份壞資料（我剛抓的），要等下一次 Action（台灣 23:07）跑完才會換成正確值。請跑完後回頭看一眼 `per_hour` 是否落回合理區間（LIVE 直播文正常會有 200–400／小時，破千就是又壞了）。
+
+## 你點名的 6 點
+
+1. **`recommend:` 邊界 — 實測（Lifeismoney，各 1 頁）**：`recommend:0` → PTT **忽略條件**，回傳含噓文的一般文章（`X2`、空白推文數）；`recommend:-5` → 同樣忽略（回了 X1/X2/X4）；`recommend:999` → 回全爆文，不報錯。所以三種邊界都**不會炸**，但見 ⚠️H4：v2 把 client 端的 `push_score >= min_push` 過濾整個拿掉了，`min_push ≤ 0` 時「熱門」會變成「最近文章」。不存在的板 → `client.search` 走 `_get` 重試 3 次（約 9 秒）後 RuntimeError → 被 per-board `except` 接住並 `job_log`，單板情境會走到 `ok_boards == 0` 的 raise ✓。
+2. **`_parse_article_dt` 的 locale — 你的擔心方向對，但目前不會發生，理由與你想的不同**：Python **啟動時不會**呼叫 `setlocale(LC_TIME, ...)`，LC_TIME 保持在 `"C"`，所以 `%a %b` 一律吃英文縮寫，跟 OS 是 zh-TW 或 runner 是 C locale 都無關。實測本機真實文章 `'Sat Aug 22 18:54:13 2026'` → 正常解析成 `2026-08-22 18:54:13`；線上 `hot.json` 的 rising 全是非零值，也反證 ubuntu runner 上解析成功。全 repo 也沒有任何一行 `setlocale`（只有 pip 內部有，跟執行期無關）。
+   **但這是一顆一行之遙的地雷**：我實測 `locale.setlocale(locale.LC_TIME, 'Chinese_Taiwan.950')` 或 `setlocale(LC_TIME, '')` 之後，`_parse_article_dt('Sat Aug 22 …')` 直接回 **None**。哪天有人為了數字/日期格式加一行 `setlocale(LC_ALL, '')`，或某個新依賴這麼做，就會全篇 dt=None → rising 全 0、per_hour 消失、排序靜默退化，而**現在沒有任何地方會叫**。→ ⚠️H3。
+3. **討論串聚合的代表選擇** — `max(group, key=score)` 的取捨可接受（爆＝100、噓＝負分，所以噓爆原文會讓一篇小推的 Re: 當代表、連結指到回文）；`thread` 篇數有顯示，使用者看得出是討論串。**但誤併是真的**，見 ⚠️H1。
+4. **rising 的除零/None** — 乾淨：`max(…, 0.1)` 擋掉除零與負年齡；`dt is None → age_h None → rising 0.0 / per_hour None`；`results.sort(key=lambda r: r.get("rising") or 0)` 對 None 安全。detail 讀取失敗直接 `continue` 的合理性見 ⚠️H2。
+5. **Tor 改的 meta 渲染沒有 XSS 面** — 全部走 `document.createElement` ＋ `textContent`，`meta.append("　", span)` 是加文字節點，沒有任何 `innerHTML` 吃資料（`innerHTML` 只用在 `box.innerHTML = ""` 清空與靜態字串）。分類／排序按鈕也是 `textContent`。
+6. **hot_cats 分類數量有界** — 每個板固定回 1 個分類，所以頁籤數 ≤ 1（全部）＋ 不重複板數（`hot_boards` UI clamp 上限 20，預設 10），實測線上 9–10 板 → 約 10 顆，不會失控；未對照到的板用板名（線上實際出現 `Badminton`）——中英混排但資訊正確，且 `config.json` 的 `hot_board_categories` 可補。另外 `hot_cats` 永遠回非空 list，所以熱門頁不會出現「其他」頁籤 ✓。
+
+## 殘留（4 項，皆非阻擋；H1／H4 建議這輪順手修）
+
+- ⚠️ **H1 `_thread_key` 不含板名 → 跨板同名標題被併掉、少一篇** — server.py `_thread_key` 只剝 `Re:/Fw:` 與 `[分類]`、去空白轉小寫，而 `threads.setdefault(_thread_key(...))` 也沒有板名前綴。實測：`[閒聊] 今日閒聊` 與 `[問卦] 今日閒聊` → 同一個 key `'今日閒聊'`；`[新聞] 台積電大漲` 與 `[心得] 台積電大漲` → 同一 key。合起來的後果是**不同看板的同名文章（各板的每日閒聊、`[公告] 板規`、同一則新聞被多板轉貼）會被併成一串，只留推文數最高那篇**，其餘從結果裡靜默消失——正好是 Dino 這次抱怨的「某板缺席」同一類症狀。一行修法：`threads.setdefault(f"{c['board']}|{_thread_key(c['title'])}", ...)`（真要跨板聚合再另議，但至少要是刻意的）。
+- ⚠️ **H2 detail 讀取失敗 → 整篇消失** — run_hot 的統計迴圈 `except → continue`，前 40 名候選只要有一篇 fetch 失敗（40 次請求，PTT 偶發 429/超時很正常）就從結果裡不見了，只有 job log 留一行。建議保留該篇（`comments=0`、`rising` 用 `score` 當備援排序值）或在 `note` 加「N 篇未取得留言統計」，別讓「進了前 40 卻消失」變成無聲事件。
+- ⚠️ **H3 缺少「時間全數解析失敗」的守門** — 這正是時區 bug 只能靠 Dino 看線上截圖才抓到的原因：程式對「age 全部撞下限」「dt 全部 None」完全沒有自覺。建議兩層：(a) run_hot 統計 `dt is None` 與 `age_h <= 0.1` 的篇數，超過一半就 `job_log` 警告（本機與線上都看得到）；(b) `scripts/build_site.py` 在「rising 全 0」或「per_hour 中位數 > 500」時 `sys.exit(1)`，讓 Action 紅燈而不是安靜發佈壞資料。搭配 H3 也順手把 `_parse_article_dt` 改成不依賴 locale（regex ＋ 月份對照表，5 行），把第 2 點那顆地雷一起拆掉。
+- ⚠️ **H4 `min_push` 完全託付給 PTT 的 `recommend:` 語法** — v2 移除了 v1 的 `if score < min_push: continue`，正確性 100% 依賴 PTT 端過濾。實測 `recommend:0`／`recommend:-5` PTT 直接忽略條件 → 直接打 `/api/run`（UI 有 clamp、API 沒有）傳 0 或負值，「熱門文章」就變成「最近文章」而毫無警訊。兩行硬化：`min_push = max(1, int(task.get("min_push", 30)))`，並在收候選時保留 `push_score(it.push) >= min_push`（`push` 空白或無法解析時放行），這樣 PTT 哪天改語法也只會少收、不會混入冷文。
+
+補五則觀察（不計入）：結果被 `max_detail` 截到 40 篇但 `note` 沒說明（使用者看到「共 40 篇」不知是上限）；`sortable` 由當前 list 推導，文字過濾到 0 筆時排序控制項會整組消失再出現（閃動）；`push_summary` 會把 `.push.warning`（例「檔案過大」提示列）算成一則 `→`，超長文的 total 差 1；`ptt_tool.py` 仍有 3 處 naive `datetime.now()`（406 匯出檔頭、487/494 週末優惠 CLI）——只有作者匯出的檔頭時間會在 UTC 主機顯示 UTC，屬顯示層，CLI 只在本機跑不受影響；`note += f"；預設依衝火速度排序…"` 是沒有佔位符的 f-string（無害）。
+
+## 已驗證乾淨
+
+- ✅ `push_summary` 單迴圈同時做統計與留言收集，`include_comments=False` 也會統計（run_hot 需要），`Optional[dict]=None` 預設維持向下相容；真實文章實測 `{'推': 782, '噓': 0, '→': 687, 'total': 1469, 'users': 184}`，與頁面相符。
+- ✅ 候選階段有 `seen` 去重（同一 URL 不會因跨板搜尋重複計入）、`days` 過濾、`max_posts=60`／板上限，總請求量有界（10 板 × 2 頁搜尋 ＋ 40 篇詳讀 ≈ 60 次請求／輪，delay 0.4 秒仍在禮貌範圍）。
+- ✅ 兩層迴圈都有 `job["cancel"]` 檢查；per-board 失敗只記 log 並 `continue`，`ok_boards == 0` 仍會 raise（v2.2 的 F7 修法沒有被這次重寫弄掉）。
+- ✅ 排序切換：`[...list].sort()` 對副本排序，不會弄亂 `VIEW_DATA` 原始資料；`switchView` 重設 `SORT="rising"`；`list.some(r => r.rising !== undefined)` 讓省錢頁不顯示排序控制項。
+- ✅ 分類頁籤比較器（canon 優先、其餘按篇數）具傳遞性，不會有排序不穩定；`hot_cats` 與省錢的 `classify` 兩套標籤互不干擾。
+- ✅ 內建 `hot-now` task 已換成新欄位（`search_pages`／`max_detail`／`min_push: 30`），`parse_request` 的熱門分支同步更新，沒有留下讀不到的舊 `scan_latest_pages` 路徑。
+
+## VERDICT（熱門 v2）
+
+`VERDICT: clean (blockers) — safe to deliver`
+
+blocker 0（時區那條是真 bug，但 `5e459cc` 已修、已推、我獨立驗證修法對症），⚠️ 4 項皆非阻擋。
+最划算的下一步：**H1 一行（板名進 thread key，止住「某板缺席」的第二個成因）＋ H4 兩行（min_push 下限與 client 端複驗）＋ H3 的守門**（這輪的教訓就是「時間算錯了沒人喊」，補一個會叫的哨兵比再修一次划算）。另外請在台灣 23:07 那輪 Action 跑完後，回頭確認線上 `per_hour` 已回到合理區間。
+
+環境交還：只做離線測試與唯讀 HTTP 探測（PTT 5 次請求：3 篇文章 ＋ 2 次 recommend 邊界搜尋；線上 hot.json 1 次），沒有起長駐 process、沒有寫入 `data/`／`output/`、scratchpad 已清空。

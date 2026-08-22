@@ -104,6 +104,7 @@
       <span class="sort-label">排序</span>
       <button class="tab active" data-sort="rising">正在起飛</button>
       <button class="tab" data-sort="comments">總留言數</button>
+      <button class="tab" data-sort="time">最新</button>
     </span>
     <label class="sr-only" for="filter-box">在結果中過濾</label>
     <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
@@ -181,7 +182,9 @@ function applyFilters(d) {
   const sortable = list.some(r => r.rising !== undefined);
   $("sort-toggle").style.display = sortable ? "flex" : "none";
   if (sortable) {
-    const key = SORT === "comments" ? (r => r.comments || 0) : (r => r.rising || 0);
+    const key = SORT === "comments" ? (r => r.comments || 0)
+      : SORT === "time" ? (r => r.ts || 0)
+      : (r => r.rising || 0);
     list = [...list].sort((a, b) => key(b) - key(a));
     document.querySelectorAll("#sort-toggle .tab").forEach(t =>
       t.classList.toggle("active", t.dataset.sort === SORT));
