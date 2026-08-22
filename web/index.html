@@ -43,7 +43,6 @@
   }
   .wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-8); }
 
-  /* 鍵盤 focus 一致樣式（文字輸入框另有較顯眼版本，見下方 .ask input:focus） */
   a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
@@ -54,7 +53,6 @@
   }
   input::placeholder, textarea::placeholder { color: var(--ink-2); opacity: .85; }
 
-  /* 畫面上不佔位、只給螢幕閱讀器讀的標籤（補上白話輸入/結果過濾框的可見標籤） */
   .sr-only {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
@@ -74,26 +72,6 @@
     border-radius: var(--radius);
     padding: var(--space-4);
   }
-
-  /* 追蹤項 */
-  .tracks { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-  .track {
-    display: flex; align-items: center; gap: var(--space-2);
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: var(--space-2) var(--space-4);
-  }
-  .track button.run {
-    background: var(--accent); color: var(--accent-ink);
-    border: 0; border-radius: var(--radius-sm); padding: 8px 14px;
-    font-size: .9rem; cursor: pointer;
-  }
-  .track button.run:hover { filter: brightness(1.08); }
-  .track .name { font-size: .95rem; }
-  .track button.del {
-    background: none; border: 0; color: var(--ink-2);
-    cursor: pointer; font-size: .88rem; padding: 8px 10px; border-radius: var(--radius-sm);
-  }
-  .track button.del:hover { color: var(--warn); background: var(--chip); }
 
   /* 白話輸入 */
   .ask { display: flex; flex-wrap: wrap; gap: var(--space-3); }
@@ -116,6 +94,24 @@
     border-radius: var(--radius); padding: 10px 16px; font-size: .95rem; cursor: pointer;
   }
   button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  button.ghost:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* 功能頁籤（頁面級，主層級：用「軌道」容器＋實心 active 建立最高視覺權重） */
+  .views {
+    display: flex; flex-wrap: wrap; gap: 2px; width: fit-content; max-width: 100%;
+    background: var(--chip); border-radius: var(--radius-pill);
+    padding: 3px; margin-bottom: var(--space-5);
+  }
+  .viewbtn {
+    background: transparent; border: 0; color: var(--ink-2);
+    border-radius: var(--radius-pill); padding: 10px var(--space-5);
+    font-size: .95rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+  }
+  .viewbtn:hover { color: var(--accent); }
+  .viewbtn.active { background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 2px rgba(31,39,51,.15); }
+  .view { display: none; }
+  .view.active { display: block; }
+  .cachetime { font-size: .82rem; color: var(--ink-2); }
 
   /* 條件表單 */
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-4); }
@@ -131,6 +127,37 @@
   .checkline { display: flex; align-items: center; gap: var(--space-2); font-size: .92rem; color: var(--ink-2); cursor: pointer; }
   .checkline input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
 
+  /* 追蹤項（進階） */
+  .tracks { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
+  .track {
+    display: flex; align-items: center; gap: var(--space-2);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: var(--space-2) var(--space-4);
+  }
+  .track button.run {
+    background: var(--accent); color: var(--accent-ink);
+    border: 0; border-radius: var(--radius-sm); padding: 8px 14px;
+    font-size: .9rem; cursor: pointer;
+  }
+  .track button.run:hover { filter: brightness(1.08); }
+  .track .name { font-size: .95rem; }
+  .track .name.clickable {
+    cursor: pointer; padding: 2px 0;
+    text-decoration: underline; text-decoration-style: dotted;
+    text-decoration-color: var(--ink-2); text-underline-offset: 2px;
+  }
+  .track .name.clickable:hover { color: var(--accent); text-decoration-style: solid; text-decoration-color: var(--accent); }
+  .track .name.clickable:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+    color: var(--accent); text-decoration-style: solid;
+  }
+  .track .cachetime { margin-top: var(--space-1); word-break: break-word; font-size: .78rem; }
+  .track button.del {
+    background: none; border: 0; color: var(--ink-2);
+    cursor: pointer; font-size: .88rem; padding: 8px 10px; border-radius: var(--radius-sm);
+  }
+  .track button.del:hover { color: var(--warn); background: var(--chip); }
+
   /* 進度 */
   #progress { display: none; }
   .bar { height: 8px; background: var(--chip); border-radius: var(--radius-pill); overflow: hidden; margin: var(--space-2) 0; }
@@ -141,14 +168,29 @@
     background: #fafbfc; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-2) 10px;
   }
 
-  /* 結果 */
+  /* 結果：分類頁籤（次層級，刻意比 .viewbtn 輕——outline chip＋淡底 active，不用實心，才不會跟頁面級主導覽搶視覺權重） */
+  .tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .tab {
+    background: var(--surface); border: 1px solid var(--line); color: var(--ink-2);
+    border-radius: var(--radius-pill); padding: 7px var(--space-4);
+    font-size: .85rem; white-space: nowrap; cursor: pointer;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--accent); }
+  .tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
   #results-head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); }
   #results-head .count { font-size: .95rem; color: var(--ink-2); }
   #filter-box {
     flex: 1; min-width: 160px; padding: 8px 12px; font-size: .92rem;
     border: 1px solid var(--line); border-radius: var(--radius-sm);
   }
+  /* 下載動作群組：跟左邊的「結果內過濾」用分隔線隔開，避免瀏覽用途與匯出用途混在同一排看不出分組 */
+  .export-actions {
+    display: flex; align-items: center; gap: var(--space-3);
+    margin-left: auto; padding-left: var(--space-4); border-left: 1px solid var(--line);
+  }
+  .checkline { padding: 8px 0; }
   .note { background: var(--accent-soft); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
+  #no-data { color: var(--ink-2); font-size: .95rem; padding: var(--space-4) 0; }
   .item { margin-bottom: var(--space-3); }
   .item h3 { margin: 0 0 var(--space-1); font-size: 1rem; font-weight: 600; }
   .item h3 a { color: var(--ink); text-decoration: none; }
@@ -171,16 +213,14 @@
   #export-path { font-size: .85rem; color: var(--accent); word-break: break-all; }
   .error { color: var(--warn); font-size: .9rem; font-weight: 600; }
   footer { color: var(--ink-2); font-size: .78rem; border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-8); }
-
-  /* 極窄螢幕：按鈕改滿版，避免擠成一團或誤觸 */
   @media (max-width: 420px) {
-    .ask button.primary { width: 100%; }
-    .row-actions { flex-direction: column; align-items: stretch; }
-  }
-
-  /* 尊重「減少動態效果」系統設定 */
-  @media (prefers-reduced-motion: reduce) {
-    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    .ask, .row-actions { flex-direction: column; align-items: stretch; }
+    #results-head { align-items: stretch; }
+    #filter-box { flex-basis: 100%; }
+    .export-actions {
+      margin-left: 0; padding-left: 0; border-left: 0; flex-basis: 100%;
+      justify-content: space-between; padding-top: var(--space-2); border-top: 1px solid var(--line);
+    }
   }
 </style>
 </head>
@@ -188,33 +228,114 @@
 <div class="wrap">
   <header class="site">
     <h1>PTT 追蹤助手</h1>
-    <p>用一句話描述需求，掃描任何 PTT 看板並整理你要的內容。</p>
+    <p>省錢優惠、熱門文章、作者下載——每天自動更新，開頁即看。</p>
   </header>
 
-  <section id="sec-tracks">
-    <h2>我的追蹤項</h2>
-    <p class="hint">一鍵重跑常用掃描；掃描條件調好後可在下方存成新的追蹤項。</p>
-    <div class="tracks" id="tracks"></div>
-  </section>
-
   <section>
-    <h2>白話需求</h2>
+    <label class="sr-only" for="ask-input">白話需求</label>
     <div class="ask">
-      <label for="ask-input" class="sr-only">白話需求</label>
-      <input id="ask-input" placeholder="例：我想看省錢版這週五六日超商咖啡或飲料有什麼優惠"
+      <input id="ask-input" placeholder="用一句話描述需求，例：我想看省錢版這週五六日超商咖啡優惠"
              list="ask-samples">
       <datalist id="ask-samples">
         <option value="我想看省錢版這週五六日超商咖啡或飲料有什麼優惠"></option>
+        <option value="當前PTT的熱門討論"></option>
+        <option value="幫我上PTT的GAY版找feverwill這個作者，並且把他的小說做成txt檔"></option>
         <option value="追蹤股版最近7天 台積電"></option>
-        <option value="電影版最近14天 特映 贈票"></option>
       </datalist>
       <button class="primary" id="btn-parse">解析</button>
     </div>
-    <p class="hint">解析結果會填進下方條件，確認或修改後再開始掃描。</p>
+    <p class="hint">解析後會自動切到對應功能並填好條件，確認後再執行。</p>
+    <span class="error" id="form-error"></span>
   </section>
 
-  <section>
-    <h2>掃描條件</h2>
+  <nav class="views" aria-label="功能切換">
+    <button class="viewbtn" data-view="money">省錢優惠</button>
+    <button class="viewbtn" data-view="hot">熱門文章</button>
+    <button class="viewbtn" data-view="author">作者下載</button>
+    <button class="viewbtn" data-view="advanced">進階掃描</button>
+  </nav>
+
+  <!-- 省錢優惠 -->
+  <section class="view" id="view-money">
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label for="f-m-days">只看最近幾天</label>
+          <input id="f-m-days" type="number" min="1" max="30" value="3">
+        </div>
+        <div class="field">
+          <label for="f-m-pages">列表掃描頁數</label>
+          <input id="f-m-pages" type="number" min="1" max="15" value="6">
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="primary runbtn" id="btn-m-run">更新優惠總覽</button>
+        <button class="ghost runbtn" id="btn-m-weekend">週末超商咖啡/飲料優惠</button>
+        <span class="cachetime" id="m-cachetime"></span>
+      </div>
+    </div>
+    <p class="hint">總覽每天自動更新；結果可用下方分類頁籤瀏覽（四大超商／超市量販／網購電商／餐飲美食／支付回饋）。</p>
+  </section>
+
+  <!-- 熱門文章 -->
+  <section class="view" id="view-hot">
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label for="f-h-board">看板（留空＝全站人氣板）</label>
+          <input id="f-h-board" list="board-list" placeholder="留空＝全站">
+        </div>
+        <div class="field">
+          <label for="f-h-minpush">推文數門檻（爆＝100）</label>
+          <input id="f-h-minpush" type="number" min="1" max="100" value="50">
+        </div>
+        <div class="field">
+          <label for="f-h-boards">全站模式掃前幾個人氣板</label>
+          <input id="f-h-boards" type="number" min="1" max="20" value="10">
+        </div>
+        <div class="field">
+          <label for="f-h-days">只看最近幾天</label>
+          <input id="f-h-days" type="number" min="1" max="30" value="2">
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="primary runbtn" id="btn-h-run">更新熱門文章</button>
+        <span class="cachetime" id="h-cachetime"></span>
+      </div>
+    </div>
+    <p class="hint">全站熱門每天自動更新（依推文數排序）；填看板名可看單一看板的高推文文章。</p>
+  </section>
+
+  <!-- 作者下載 -->
+  <section class="view" id="view-author">
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label for="f-a-board">看板（英文板名）</label>
+          <input id="f-a-board" list="board-list" placeholder="gay">
+        </div>
+        <div class="field">
+          <label for="f-a-author">作者帳號</label>
+          <input id="f-a-author" placeholder="feverwill">
+        </div>
+        <div class="field">
+          <label for="f-a-tag">標題篩選字串（留空＝全部文章）</label>
+          <input id="f-a-tag" value="[創作]">
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="primary runbtn" id="btn-a-run">搜尋並匯出 TXT</button>
+      </div>
+    </div>
+    <p class="hint">會抓該作者符合條件的所有文章、依集數排序合併成一個 TXT（存到 output 資料夾），下方同時列出文章清單。</p>
+  </section>
+
+  <!-- 進階掃描 -->
+  <section class="view" id="view-advanced">
+    <h2>我的追蹤項</h2>
+    <p class="hint">一鍵重跑常用掃描；下方條件調好後可存成新的追蹤項。</p>
+    <div class="tracks" id="tracks"></div>
+    <h2 style="margin-top: var(--space-5)">自訂掃描條件</h2>
     <div class="card">
       <div class="grid">
         <div class="field">
@@ -244,11 +365,9 @@
         </div>
       </div>
       <div class="row-actions">
-        <button class="primary" id="btn-run">開始掃描</button>
-        <button class="ghost" id="btn-cancel" style="display:none">取消</button>
+        <button class="primary runbtn" id="btn-run">開始掃描</button>
         <button class="ghost" id="btn-save-track">存成追蹤項</button>
         <label class="checkline"><input type="checkbox" id="f-body" checked> 讀取內文（較慢但能看摘要、比對更準）</label>
-        <span class="error" id="form-error"></span>
       </div>
     </div>
   </section>
@@ -258,21 +377,29 @@
     <div class="card">
       <div class="bar"><i id="bar-fill"></i></div>
       <div id="log" aria-live="polite"></div>
+      <div class="row-actions">
+        <button class="ghost" id="btn-cancel">取消</button>
+      </div>
     </div>
   </section>
 
   <section id="results" style="display:none">
-    <h2>結果</h2>
+    <h2 id="results-title">結果</h2>
     <div id="note" class="note" style="display:none"></div>
+    <div class="tabs" id="cat-tabs" style="display:none"></div>
     <div id="results-head">
       <span class="count" id="count"></span>
-      <label for="filter-box" class="sr-only">在結果中再過濾</label>
-      <input id="filter-box" placeholder="在結果中再過濾（標題/作者/內文）">
-      <button class="ghost" id="btn-export">匯出 TXT</button>
+      <label class="sr-only" for="filter-box">在結果中再過濾</label>
+      <input id="filter-box" placeholder="在結果中再過濾（標題/作者/看板/內文）">
+      <div class="export-actions">
+        <label class="checkline"><input type="checkbox" id="dl-comments"> 含留言</label>
+        <button class="ghost runbtn" id="btn-export">下載全文 TXT</button>
+      </div>
     </div>
     <div id="export-path"></div>
     <div id="items"></div>
   </section>
+  <div id="no-data" style="display:none">這個功能還沒有資料，按上方按鈕執行第一次掃描。</div>
 
   <footer>
     只讀取 PTT 公開網頁、不登入不發文；請求間有禮貌延遲。優惠與內容以原文及官方公告為準。
@@ -282,14 +409,17 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-let META = { tracks: [], boards: [] };
-let JOB = null;           // 進行中 job id
+let META = { tracks: [], boards: [], categories: [] };
+let JOB = null;            // 進行中 job id（"pending" = 送出中佔位）
+let JOB_VIEW = null;       // 這個 job 屬於哪個功能頁
+let JOB_NAME = "PTT掃描結果";
 let POLL = null;
-let POLL_FAILS = 0;       // 連續輪詢失敗次數
-let WEEKEND_FLAG = false; // 目前條件是否為週末追蹤（由 fillForm 設定）
-let RESULTS = [];
-let NOTE = "";
-let LAST_NAME = "PTT掃描結果";
+let POLL_FAILS = 0;
+let VIEW = "money";
+let ACTIVE_CAT = "全部";
+let CURRENT_LIST = [];     // 目前顯示中的（分類＋文字過濾後）清單，下載全文以此為準
+// 各功能頁各自的結果狀態：{results, note, name}
+const VIEW_DATA = { money: null, hot: null, author: null, advanced: null };
 
 const api = async (path, opts) => {
   const r = await fetch(path, opts);
@@ -306,112 +436,134 @@ const post = (path, obj) => api(path, {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(obj),
 });
+const splitWords = (s) => (s || "").split(/[、,，/\s]+/).map(x => x.trim()).filter(Boolean);
+function intVal(id, min, max, dft) {
+  const n = parseInt($(id).value || "", 10);
+  if (isNaN(n)) return dft;
+  return Math.min(max, Math.max(min, n));
+}
 
-/* ---------------- 追蹤項 ---------------- */
-function renderTracks() {
-  const box = $("tracks");
-  box.innerHTML = "";
-  if (!META.tracks.length) {
-    box.innerHTML = '<span class="empty">還沒有追蹤項。</span>';
+/* ---------------- 功能頁切換 ---------------- */
+function switchView(v) {
+  VIEW = v;
+  document.querySelectorAll(".viewbtn").forEach(b => b.classList.toggle("active", b.dataset.view === v));
+  document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === "view-" + v));
+  ACTIVE_CAT = "全部";
+  $("filter-box").value = "";
+  $("export-path").textContent = "";
+  renderCurrentView();
+}
+document.querySelectorAll(".viewbtn").forEach(b =>
+  b.addEventListener("click", () => switchView(b.dataset.view))
+);
+
+function renderCurrentView() {
+  const data = VIEW_DATA[VIEW];
+  if (!data) {
+    $("results").style.display = "none";
+    $("no-data").style.display = "block";
     return;
   }
-  for (const t of META.tracks) {
-    const div = document.createElement("div");
-    div.className = "track";
-    const run = document.createElement("button");
-    run.className = "run";
-    run.textContent = "掃描";
-    run.addEventListener("click", () => { fillForm(t.task); LAST_NAME = t.name; runTask(t.task); });
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = t.name;
-    const del = document.createElement("button");
-    del.className = "del";
-    del.title = "刪除追蹤項";
-    del.textContent = "刪除";
-    del.addEventListener("click", async () => {
-      if (!confirm(`刪除追蹤項「${t.name}」？`)) return;
-      const j = await post("/api/tracks", { action: "delete", id: t.id });
-      META.tracks = j.tracks; renderTracks();
-    });
-    div.append(run, name, del);
-    box.appendChild(div);
-  }
+  $("no-data").style.display = "none";
+  $("results").style.display = "block";
+  $("results-title").textContent = data.name || "結果";
+  $("note").style.display = data.note ? "block" : "none";
+  $("note").textContent = data.note || "";
+  renderTabs();
+  applyFilters();
 }
 
-/* ---------------- 表單 <-> task ---------------- */
-const splitWords = (s) => (s || "").split(/[、,，/\s]+/).map(x => x.trim()).filter(Boolean);
-
-function fillForm(task) {
-  $("f-board").value = task.board || "";
-  $("f-days").value = task.days ?? 10;
-  $("f-pages").value = task.scan_latest_pages ?? 4;
-  $("f-queries").value = (task.queries || []).join("、");
-  $("f-groups").value = (task.must_groups || []).map(g => g.join("、")).join("\n");
-  $("f-exclude").value = (task.exclude || []).join("、");
-  $("f-body").checked = task.read_body !== false;
-  WEEKEND_FLAG = !!task.weekend;
+/* ---------------- 內建 task 樣板 ---------------- */
+function builtinTask(id) {
+  const t = META.tracks.find(x => x.id === id);
+  return t ? JSON.parse(JSON.stringify(t.task)) : null;
 }
 
-function readForm() {
+function moneyTask() {
+  const t = builtinTask("lifeismoney-browse") || {
+    intent: "scan", board: "Lifeismoney", queries: [], must_groups: [],
+    exclude: [], read_body: false, max_body_reads: 0, search_pages: 3,
+  };
+  t.days = intVal("f-m-days", 1, 30, 3);
+  t.scan_latest_pages = intVal("f-m-pages", 1, 15, 6);
+  return t;
+}
+
+function hotTask() {
+  return {
+    intent: "hot",
+    board: $("f-h-board").value.trim(),
+    min_push: intVal("f-h-minpush", 1, 100, 50),
+    hot_boards: intVal("f-h-boards", 1, 20, 10),
+    scan_latest_pages: $("f-h-board").value.trim() ? 3 : 1,
+    days: intVal("f-h-days", 1, 30, 2),
+  };
+}
+
+function authorTask() {
+  return {
+    intent: "author_export",
+    board: $("f-a-board").value.trim(),
+    author: $("f-a-author").value.trim(),
+    tag: $("f-a-tag").value.trim(),
+    max_pages: 20,
+  };
+}
+
+function advancedTask() {
   const groups = $("f-groups").value.split("\n").map(splitWords).filter(g => g.length);
   return {
+    intent: "scan",
     board: $("f-board").value.trim(),
-    days: Math.max(0, parseInt($("f-days").value || "0", 10) || 0),
-    scan_latest_pages: Math.max(0, parseInt($("f-pages").value || "0", 10) || 0),
+    days: intVal("f-days", 0, 365, 10),
+    scan_latest_pages: intVal("f-pages", 0, 15, 4),
     search_pages: 3,
     queries: splitWords($("f-queries").value),
     must_groups: groups,
     exclude: splitWords($("f-exclude").value),
     read_body: $("f-body").checked,
     max_body_reads: 30,
-    weekend: WEEKEND_FLAG || /週末|五六日/.test($("ask-input").value),
   };
 }
 
-/* ---------------- 白話解析 ---------------- */
-$("btn-parse").addEventListener("click", async () => {
-  const text = $("ask-input").value.trim();
-  $("form-error").textContent = "";
-  if (!text) { $("form-error").textContent = "請先輸入需求。"; return; }
-  try {
-    const j = await post("/api/parse", { text });
-    fillForm(j.task);
-    LAST_NAME = text.slice(0, 30);
-    $("form-error").textContent = "";
-  } catch (e) { $("form-error").textContent = e.message; }
-});
-$("ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-parse").click(); });
-
 /* ---------------- 執行與輪詢 ---------------- */
-async function runTask(task) {
+async function runTask(task, trackId, view, name) {
   $("form-error").textContent = "";
   if (JOB) { $("form-error").textContent = "已有掃描進行中，請先取消或等它完成再開新掃描。"; return; }
-  if (!task.board) { $("form-error").textContent = "請填看板英文板名。"; return; }
+  if (task.intent !== "hot" && !task.board) { $("form-error").textContent = "請填看板英文板名。"; return; }
+  if (task.intent === "author_export" && !task.author) { $("form-error").textContent = "請填作者帳號。"; return; }
   JOB = "pending";              // 先佔位，堵住 await 期間的第二次點擊
-  $("btn-run").disabled = true;
+  setRunButtons(false);
   try {
-    const j = await post("/api/run", { task });
+    const j = await post("/api/run", { task, track_id: trackId || null });
     if (POLL) { clearInterval(POLL); POLL = null; }
     POLL_FAILS = 0;
     JOB = j.job_id;
+    JOB_VIEW = view;
+    JOB_NAME = name || "PTT掃描結果";
     $("progress").style.display = "block";
-    $("results").style.display = "none";
-    $("btn-run").disabled = true;
-    $("btn-cancel").style.display = "inline-block";
     $("log").textContent = "";
     $("bar-fill").style.width = "0%";
     POLL = setInterval(pollJob, 900);
     $("progress").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e) {
     JOB = null;
-    $("btn-run").disabled = false;
+    setRunButtons(true);
     $("form-error").textContent = e.message;
   }
 }
 
+function setRunButtons(enabled) {
+  document.querySelectorAll(".runbtn").forEach(b => { b.disabled = !enabled; });
+}
+
+function endJob() {
+  clearInterval(POLL); POLL = null; JOB = null; JOB_VIEW = null; POLL_FAILS = 0;
+  setRunButtons(true);
+}
+
 async function pollJob() {
-  if (!JOB) return;
+  if (!JOB || JOB === "pending") return;
   try {
     const j = await api("/api/jobs/" + JOB);
     POLL_FAILS = 0;
@@ -420,13 +572,21 @@ async function pollJob() {
     const p = j.progress || {};
     if (p.total) $("bar-fill").style.width = Math.round(100 * p.done / p.total) + "%";
     if (j.status !== "running") {
-      clearInterval(POLL); POLL = null; JOB = null;
-      $("btn-run").disabled = false;
-      $("btn-cancel").style.display = "none";
+      const view = JOB_VIEW, name = JOB_NAME;
+      endJob();
       if (j.status === "done") {
         $("bar-fill").style.width = "100%";
-        RESULTS = j.results; NOTE = j.note || "";
-        showResults();
+        $("progress").style.display = "none";
+        if (j.kind === "download") {
+          // 批次下載：不動目前的結果清單，直接給檔案
+          if (j.file) offerDownload(j.file);
+        } else {
+          VIEW_DATA[view] = { results: j.results, note: j.note || "", name };
+          refreshMetaQuiet();
+          switchView(view);
+          if (j.file) offerDownload(j.file);  // 作者匯出：結果清單＋直接下載 TXT
+          $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       } else if (j.status === "error") {
         $("form-error").textContent = j.error || "掃描失敗";
         $("log").textContent += "\n掃描已停止：" + (j.error || "掃描失敗");
@@ -440,40 +600,216 @@ async function pollJob() {
     // 連續失敗或 job 已不存在（server 重啟/被淘汰）就停止輪詢並告知，避免永遠卡在「掃描中」
     POLL_FAILS++;
     if (POLL_FAILS >= 5 || e.status === 404) {
-      clearInterval(POLL); POLL = null; JOB = null; POLL_FAILS = 0;
-      $("btn-run").disabled = false;
-      $("btn-cancel").style.display = "none";
+      endJob();
       const msg = "與伺服器失聯，掃描狀態未知（" + e.message + "）。請確認服務仍在執行後重試。";
       $("form-error").textContent = msg;
-      $("log").textContent += "\n掃描已停止：" + msg;   // 使用者視線在進度區，log 也要講
+      $("log").textContent += "\n掃描已停止：" + msg;
       $("log").scrollTop = $("log").scrollHeight;
     }
   }
 }
 
-$("btn-run").addEventListener("click", () => runTask(readForm()));
-$("btn-cancel").addEventListener("click", () => { if (JOB && JOB !== "pending") post("/api/jobs/" + JOB + "/cancel", {}); });
-// 手動改板名＝已離開原本的追蹤情境，週末提示旗標跟著清掉
-$("f-board").addEventListener("input", () => { WEEKEND_FLAG = false; });
+$("btn-cancel").addEventListener("click", () => {
+  if (JOB && JOB !== "pending") post("/api/jobs/" + JOB + "/cancel", {});
+});
 
-/* ---------------- 結果 ---------------- */
-function showResults() {
-  $("progress").style.display = "none";
-  $("results").style.display = "block";
-  $("note").style.display = NOTE ? "block" : "none";
-  $("note").textContent = NOTE;
-  $("filter-box").value = "";
-  $("export-path").textContent = "";
-  renderItems(RESULTS);
-  $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+/* 各功能頁的執行按鈕 */
+$("btn-m-run").addEventListener("click", () => {
+  const t = moneyTask();
+  // 只有預設條件的結果才回寫每日快取，避免縮小條件的一次掃描污染「開頁即看」
+  const isDefault = t.days === 3 && t.scan_latest_pages === 6;
+  runTask(t, isDefault ? "lifeismoney-browse" : null, "money", "省錢版｜最新優惠總覽");
+});
+$("btn-m-weekend").addEventListener("click", () => {
+  const t = builtinTask("weekend-coffee");
+  if (!t) { $("form-error").textContent = "找不到週末優惠追蹤項。"; return; }
+  runTask(t, "weekend-coffee", "money", "省錢版｜週五六日超商咖啡/飲料優惠");
+});
+$("btn-h-run").addEventListener("click", () => {
+  const t = hotTask();
+  // 只有「全站、預設條件」的結果才回寫每日快取，避免單板掃描汙染全站快取
+  const isDefault = !t.board && t.min_push === 50 && t.hot_boards === 10;
+  runTask(t, isDefault ? "hot-now" : null, "hot", t.board ? `${t.board} 板熱門文章` : "PTT 全站熱門討論");
+});
+$("btn-a-run").addEventListener("click", () => {
+  const t = authorTask();
+  runTask(t, null, "author", t.author ? `作者 ${t.author} 文章匯出` : "作者文章匯出");
+});
+$("btn-run").addEventListener("click", () => {
+  const t = advancedTask();
+  runTask(t, null, "advanced", t.board ? `${t.board} 掃描` : "PTT掃描結果");
+});
+
+/* ---------------- 白話解析（自動導向功能頁） ---------------- */
+$("btn-parse").addEventListener("click", async () => {
+  const text = $("ask-input").value.trim();
+  $("form-error").textContent = "";
+  if (!text) { $("form-error").textContent = "請先輸入需求。"; return; }
+  try {
+    const j = await post("/api/parse", { text });
+    const t = j.task;
+    if (t.intent === "author_export") {
+      $("f-a-board").value = t.board || "";
+      $("f-a-author").value = t.author || "";
+      $("f-a-tag").value = t.tag !== undefined ? t.tag : "[創作]";
+      switchView("author");
+    } else if (t.intent === "hot") {
+      $("f-h-board").value = t.board || "";
+      $("f-h-minpush").value = t.min_push ?? 50;
+      $("f-h-boards").value = t.hot_boards ?? 10;
+      $("f-h-days").value = t.days ?? 2;
+      switchView("hot");
+    } else if (t.board === "Lifeismoney" && t.weekend) {
+      // 省錢版週末優惠：導向省錢頁，直接用解析出的完整條件跑
+      switchView("money");
+      runTask(t, "weekend-coffee", "money", "省錢版｜週五六日超商咖啡/飲料優惠");
+      return;
+    } else {
+      $("f-board").value = t.board || "";
+      $("f-days").value = t.days ?? 10;
+      $("f-pages").value = t.scan_latest_pages ?? 4;
+      $("f-queries").value = (t.queries || []).join("、");
+      $("f-groups").value = (t.must_groups || []).map(g => g.join("、")).join("\n");
+      $("f-exclude").value = (t.exclude || []).join("、");
+      $("f-body").checked = t.read_body !== false;
+      switchView("advanced");
+    }
+  } catch (e) { $("form-error").textContent = e.message; }
+});
+$("ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-parse").click(); });
+
+/* ---------------- 追蹤項（進階頁） ---------------- */
+function renderTracks() {
+  const box = $("tracks");
+  box.innerHTML = "";
+  if (!META.tracks.length) {
+    box.innerHTML = '<span class="empty">還沒有追蹤項。</span>';
+    return;
+  }
+  for (const t of META.tracks) {
+    const div = document.createElement("div");
+    div.className = "track";
+    const run = document.createElement("button");
+    run.className = "run runbtn";  // runbtn：掃描進行中會被 setRunButtons 一併停用
+    run.textContent = "掃描";
+    run.addEventListener("click", () => runTask(JSON.parse(JSON.stringify(t.task)), t.id, "advanced", t.name));
+    const nameWrap = document.createElement("span");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = t.name;
+    nameWrap.appendChild(name);
+    if (t.cache) {
+      name.title = "點擊直接看上次結果";
+      name.classList.add("clickable");
+      name.setAttribute("role", "button");
+      name.setAttribute("tabindex", "0");
+      const openCache = () => loadCacheInto(t, "advanced");
+      name.addEventListener("click", openCache);
+      name.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCache(); }
+      });
+      const ct = document.createElement("div");
+      ct.className = "cachetime";
+      ct.textContent = `更新於 ${t.cache.updated_at}｜${t.cache.count} 篇` + (t.auto ? "｜自動更新" : "");
+      nameWrap.appendChild(ct);
+    } else if (t.auto) {
+      const ct = document.createElement("div");
+      ct.className = "cachetime";
+      ct.textContent = "自動更新（尚無快取）";
+      nameWrap.appendChild(ct);
+    }
+    const del = document.createElement("button");
+    del.className = "del";
+    del.title = "刪除追蹤項";
+    del.textContent = "刪除";
+    del.addEventListener("click", async () => {
+      if (!confirm(`刪除追蹤項「${t.name}」？`)) return;
+      const j = await post("/api/tracks", { action: "delete", id: t.id });
+      META.tracks = j.tracks;
+      refreshMetaQuiet().then(renderTracks);
+    });
+    div.append(run, nameWrap, del);
+    box.appendChild(div);
+  }
 }
 
+async function loadCacheInto(t, view) {
+  try {
+    const c = await api("/api/cache/" + t.id);
+    VIEW_DATA[view] = {
+      results: c.results || [],
+      note: (c.note ? c.note + "｜" : "") + "快取更新於 " + (c.updated_at || ""),
+      name: t.name,
+    };
+    if (VIEW === view) renderCurrentView(); else switchView(view);
+  } catch (e) {
+    $("form-error").textContent = "這個追蹤項還沒有快取，請先按「掃描」。";
+  }
+}
+
+$("btn-save-track").addEventListener("click", async () => {
+  const task = advancedTask();
+  if (!task.board) { $("form-error").textContent = "請先填看板。"; return; }
+  const name = prompt("追蹤項名稱：", `${task.board} 掃描`);
+  if (!name) return;
+  try {
+    const j = await post("/api/tracks", { action: "save", track: { name, task } });
+    META.tracks = j.tracks;
+    await refreshMetaQuiet();
+    renderTracks();
+  } catch (e) { $("form-error").textContent = e.message; }
+});
+
+/* ---------------- 結果渲染 ---------------- */
+function renderTabs() {
+  const box = $("cat-tabs");
+  box.innerHTML = "";
+  const data = VIEW_DATA[VIEW];
+  const results = data ? data.results : [];
+  const hasCats = results.some(r => (r.cats || []).length);
+  if (!hasCats) { box.style.display = "none"; return; }
+  const names = ["全部",
+    ...(META.categories || []).filter(c => results.some(r => (r.cats || []).includes(c))),
+  ];
+  if (results.some(r => !(r.cats || []).length)) names.push("其他");
+  for (const n of names) {
+    const count = n === "全部" ? results.length
+      : n === "其他" ? results.filter(r => !(r.cats || []).length).length
+      : results.filter(r => (r.cats || []).includes(n)).length;
+    const b = document.createElement("button");
+    b.className = "tab" + (n === ACTIVE_CAT ? " active" : "");
+    b.textContent = `${n} ${count}`;
+    b.addEventListener("click", () => { ACTIVE_CAT = n; renderTabs(); applyFilters(); });
+    box.appendChild(b);
+  }
+  box.style.display = "flex";
+}
+
+function applyFilters() {
+  const data = VIEW_DATA[VIEW];
+  let list = data ? data.results : [];
+  if (ACTIVE_CAT !== "全部") {
+    list = ACTIVE_CAT === "其他"
+      ? list.filter(r => !(r.cats || []).length)
+      : list.filter(r => (r.cats || []).includes(ACTIVE_CAT));
+  }
+  const q = $("filter-box").value.trim().toLowerCase();
+  if (q) {
+    list = list.filter(r =>
+      (r.title + " " + (r.author || "") + " " + (r.board || "") + " " + (r.preview || "")).toLowerCase().includes(q)
+    );
+  }
+  renderItems(list);
+}
+$("filter-box").addEventListener("input", applyFilters);
+
 function renderItems(list) {
+  CURRENT_LIST = list;
   $("count").textContent = `共 ${list.length} 篇`;
   const box = $("items");
   box.innerHTML = "";
   if (!list.length) {
-    box.innerHTML = '<p class="empty">沒有符合條件的文章。可以放寬「必含條件」或增加天數再試。</p>';
+    box.innerHTML = '<p class="empty">沒有符合條件的文章。</p>';
     return;
   }
   for (const r of list) {
@@ -486,7 +822,10 @@ function renderItems(list) {
     h.appendChild(a);
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent = `${r.date || ""}　${r.author || ""}`;
+    const bits = [r.date || "", r.author || ""];
+    if (r.board) bits.push(r.board + " 板");
+    if (r.push) bits.push("推文 " + r.push);
+    meta.textContent = bits.filter(Boolean).join("　");
     div.append(h, meta);
     if (r.matched && r.matched.length) {
       const chips = document.createElement("div");
@@ -526,48 +865,97 @@ function renderItems(list) {
   }
 }
 
-$("filter-box").addEventListener("input", () => {
-  const q = $("filter-box").value.trim().toLowerCase();
-  if (!q) { renderItems(RESULTS); return; }
-  renderItems(RESULTS.filter(r =>
-    (r.title + " " + (r.author || "") + " " + (r.preview || "")).toLowerCase().includes(q)
-  ));
-});
-
+/* 批次下載目前顯示中的清單（會逐篇抓全文，可含留言），完成後瀏覽器自動下載 TXT */
 $("btn-export").addEventListener("click", async () => {
+  const data = VIEW_DATA[VIEW];
+  if (!data || !CURRENT_LIST.length) { $("export-path").textContent = "沒有可下載的結果。"; return; }
+  if (JOB) { $("form-error").textContent = "已有工作進行中，請先取消或等它完成。"; return; }
+  $("form-error").textContent = "";
+  $("export-path").textContent = "";
+  JOB = "pending";
+  setRunButtons(false);
   try {
-    const j = await post("/api/export", { name: LAST_NAME, results: RESULTS, note: NOTE });
-    $("export-path").textContent = "已匯出：" + j.path;
-  } catch (e) { $("export-path").textContent = "匯出失敗：" + e.message; }
+    const urls = [...new Set(CURRENT_LIST.map(r => r.url))];
+    if (urls.length > 300) $("form-error").textContent = `一次最多 300 篇，將只下載最前面 300 篇（共 ${urls.length} 篇）。`;
+    const j = await post("/api/download", {
+      name: data.name,
+      urls,
+      include_comments: $("dl-comments").checked,
+    });
+    if (POLL) { clearInterval(POLL); POLL = null; }
+    POLL_FAILS = 0;
+    JOB = j.job_id;
+    JOB_VIEW = VIEW;
+    JOB_NAME = data.name;
+    $("progress").style.display = "block";
+    $("log").textContent = "";
+    $("bar-fill").style.width = "0%";
+    POLL = setInterval(pollJob, 900);
+    $("progress").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) {
+    JOB = null;
+    setRunButtons(true);
+    $("export-path").textContent = "下載失敗：" + e.message;
+  }
 });
 
-/* ---------------- 存追蹤項 ---------------- */
-$("btn-save-track").addEventListener("click", async () => {
-  const task = readForm();
-  if (!task.board) { $("form-error").textContent = "請先填看板。"; return; }
-  const name = prompt("追蹤項名稱：", LAST_NAME || `${task.board} 掃描`);
-  if (!name) return;
-  try {
-    const j = await post("/api/tracks", { action: "save", track: { name, task } });
-    META.tracks = j.tracks; renderTracks();
-  } catch (e) { $("form-error").textContent = e.message; }
-});
+function offerDownload(file) {
+  const url = "/files/" + encodeURIComponent(file);
+  $("export-path").innerHTML = "";
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file;  // 用 download 屬性觸發：就算回應不是 attachment 也不會把頁面導走
+  a.textContent = "已產生：" + file + "（點此可再次下載）";
+  $("export-path").appendChild(a);
+  a.click();
+}
 
-/* ---------------- init ---------------- */
+/* ---------------- meta 與初始化 ---------------- */
+function renderCacheLabels() {
+  const m = META.tracks.find(t => t.id === "lifeismoney-browse");
+  $("m-cachetime").textContent = m && m.cache ? `每日自動更新｜上次：${m.cache.updated_at}` : "每日自動更新｜尚無快取";
+  const h = META.tracks.find(t => t.id === "hot-now");
+  $("h-cachetime").textContent = h && h.cache ? `每日自動更新｜上次：${h.cache.updated_at}` : "每日自動更新｜尚無快取";
+}
+
+async function refreshMetaQuiet() {
+  try {
+    META = await api("/api/meta");
+    renderCacheLabels();
+    renderTracks();
+  } catch (e) { /* 靜默，下次操作再更新 */ }
+}
+
 (async () => {
   try {
     META = await api("/api/meta");
-    renderTracks();
     const dl = $("board-list");
     for (const b of META.boards) {
       const o = document.createElement("option");
       o.value = b;
       dl.appendChild(o);
     }
-    // 預設帶入內建追蹤項條件，開頁即可直接按「開始掃描」
-    if (META.tracks[0]) fillForm(META.tracks[0].task);
+    renderCacheLabels();
+    renderTracks();
+    // 開頁即看：載入省錢版與熱門的每日快取
+    const money = META.tracks.find(t => t.id === "lifeismoney-browse");
+    const hot = META.tracks.find(t => t.id === "hot-now");
+    if (hot && hot.cache) {
+      try {
+        const c = await api("/api/cache/hot-now");
+        VIEW_DATA.hot = { results: c.results || [], note: (c.note ? c.note + "｜" : "") + "快取更新於 " + c.updated_at, name: hot.name };
+      } catch (e) {}
+    }
+    if (money && money.cache) {
+      try {
+        const c = await api("/api/cache/lifeismoney-browse");
+        VIEW_DATA.money = { results: c.results || [], note: (c.note ? c.note + "｜" : "") + "快取更新於 " + c.updated_at, name: money.name };
+      } catch (e) {}
+    }
+    switchView("money");
   } catch (e) {
     $("form-error").textContent = "載入失敗：" + e.message;
+    switchView("money");
   }
 })();
 </script>

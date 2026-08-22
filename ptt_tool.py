@@ -62,6 +62,7 @@ class SearchItem:
     author: str
     date_text: str
     url: str
+    push: str = ""  # 板面列表的推文數欄位：爆 / 99 / 數字 / X1（噓）
 
 
 @dataclass
@@ -121,12 +122,14 @@ class PTTClient:
                 title = " ".join(a.get_text(" ", strip=True).split())
                 author_el = row.select_one(".author")
                 date_el = row.select_one(".date")
+                push_el = row.select_one(".nrec")
                 results.append(
                     SearchItem(
                         title=title,
                         author=author_el.get_text(strip=True) if author_el else "",
                         date_text=date_el.get_text(strip=True) if date_el else "",
                         url=full_url,
+                        push=push_el.get_text(strip=True) if push_el else "",
                     )
                 )
                 if len(results) >= max_posts:
@@ -162,12 +165,14 @@ class PTTClient:
                 seen.add(full_url)
                 author_el = row.select_one(".author")
                 date_el = row.select_one(".date")
+                push_el = row.select_one(".nrec")
                 results.append(
                     SearchItem(
                         title=" ".join(a.get_text(" ", strip=True).split()),
                         author=author_el.get_text(strip=True) if author_el else "",
                         date_text=date_el.get_text(strip=True) if date_el else "",
                         url=full_url,
+                        push=push_el.get_text(strip=True) if push_el else "",
                     )
                 )
                 if len(results) >= max_posts:
@@ -184,7 +189,34 @@ class PTTClient:
 
         return results
 
-    def article(self, url: str) -> Article:
+    def hotboards(self, top: int = 20) -> list[dict]:
+        """抓 PTT 即時熱門看板排行（/bbs/hotboards.html），回 [{board, nuser, category, title}]。"""
+        r = self._get(f"{BASE}/bbs/hotboards.html")
+        soup = BeautifulSoup(r.text, "html.parser")
+        boards: list[dict] = []
+        for ent in soup.select(".b-ent"):
+            name_el = ent.select_one(".board-name")
+            if not name_el:
+                continue
+            nuser_el = ent.select_one(".board-nuser")
+            nuser_text = nuser_el.get_text(strip=True) if nuser_el else "0"
+            try:
+                nuser = int(re.sub(r"\D", "", nuser_text) or 0)
+            except ValueError:
+                nuser = 0
+            cat_el = ent.select_one(".board-class")
+            title_el = ent.select_one(".board-title")
+            boards.append({
+                "board": name_el.get_text(strip=True),
+                "nuser": nuser,
+                "category": cat_el.get_text(strip=True) if cat_el else "",
+                "title": title_el.get_text(strip=True) if title_el else "",
+            })
+            if len(boards) >= top:
+                break
+        return boards
+
+    def article(self, url: str, include_comments: bool = False) -> Article:
         r = self._get(url)
         soup = BeautifulSoup(r.text, "html.parser")
         main = soup.select_one("#main-content")
@@ -197,6 +229,23 @@ class PTTClient:
             val = line.select_one(".article-meta-value")
             if tag and val:
                 meta[tag.get_text(strip=True)] = val.get_text(" ", strip=True)
+
+        # 留言（推文）要在 decompose 前先收
+        comments: list[str] = []
+        if include_comments:
+            for p in main.select(".push"):
+                tag_el = p.select_one(".push-tag")
+                uid_el = p.select_one(".push-userid")
+                content_el = p.select_one(".push-content")
+                dt_el = p.select_one(".push-ipdatetime")
+                line = " ".join(filter(None, [
+                    tag_el.get_text(strip=True) if tag_el else "",
+                    (uid_el.get_text(strip=True) if uid_el else "")
+                    + (content_el.get_text(" ", strip=True) if content_el else ""),
+                    dt_el.get_text(strip=True) if dt_el else "",
+                ])).strip()
+                if line:
+                    comments.append(line)
 
         for selector in [
             ".article-metaline",
@@ -211,6 +260,8 @@ class PTTClient:
         text = main.get_text("\n")
         text = html.unescape(text)
         text = clean_ptt_body(text)
+        if comments:
+            text += "\n\n" + "─" * 30 + " 留言 " + "─" * 30 + "\n" + "\n".join(comments)
 
         return Article(
             title=meta.get("標題", ""),
@@ -286,9 +337,18 @@ def safe_filename(s: str) -> str:
 
 def title_sort_key(title: str):
     # Prefer final (N) / -NN / _NN / 第N... patterns.
-    nums = re.findall(r"(?:\(|（|-|－|_|\s|第)(\d{1,4})(?:\)|）|$|\D)", title)
-    n = int(nums[-1]) if nums else 10**9
-    return (strip_ptt_category(title), n, title)
+    base = strip_ptt_category(re.sub(r"^\s*(?:Re|Fw)\s*:\s*", "", title, flags=re.I))
+    nums = re.findall(r"(?:\(|（|-|－|_|\s|第)(\d{1,4})(?:\)|）|$|\D)", base)
+    if not nums:
+        # 無分隔符直接黏在字尾的集數（例：未央光年43）
+        m = re.search(r"(\d{1,4})\s*[\)）]?\s*$", base)
+        if m:
+            nums = [m.group(1)]
+    # 沒有集數視為第 0 集（系列首篇常不編號）
+    n = int(nums[-1]) if nums else 0
+    # 去掉尾端集數標記與空白後當系列名，讓「未央光年 (43)」與「未央光年(1)」歸同一系列
+    series = re.sub(r"[\s\-－_]*[\(（]?\d{1,4}[\)）]?\s*$", "", base).replace(" ", "").strip()
+    return (series, n, base)
 
 
 def strip_ptt_category(title: str) -> str:
@@ -301,19 +361,35 @@ def export_author_creations(
     author: str,
     out_dir: Path,
     max_pages: int = 20,
+    tag: str = "[創作]",
+    on_progress=None,
+    collect: list | None = None,
 ) -> Path:
+    """作者文章合併匯出 TXT。tag 為標題篩選字串（空字串＝不篩）；
+    on_progress(msg) 供網頁回報進度（預設印到 console）；collect 若給 list 會收集 SearchItem。"""
+
+    def report(msg: str) -> None:
+        if on_progress:
+            on_progress(msg)
+        else:
+            print(msg)
+
     items = client.search(board, f"author:{author}", max_pages=max_pages, max_posts=500)
-    creations = [x for x in items if "[創作]" in x.title]
+    creations = [x for x in items if not tag or tag in x.title]
 
     if not creations:
-        raise RuntimeError(f"找不到 {board} 板作者 {author} 的 [創作] 文章。")
+        label = f"標題含 {tag} 的" if tag else ""
+        raise RuntimeError(f"找不到 {board} 板作者 {author} 的{label}文章。")
 
     creations.sort(key=lambda x: title_sort_key(x.title))
+    if collect is not None:
+        collect.extend(creations)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{safe_filename(author)}_{safe_filename(board)}_創作.txt"
+    tag_label = safe_filename(tag.strip("[]")) if tag else "全部文章"  # 維持 v1 的 xxx_創作.txt 命名
+    out_file = out_dir / f"{safe_filename(author)}_{safe_filename(board)}_{tag_label}.txt"
 
     chunks = [
-        f"PTT {board} 板｜作者 {author}｜[創作] 合併匯出",
+        f"PTT {board} 板｜作者 {author}｜{tag or '全部文章'} 合併匯出",
         f"匯出時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"共 {len(creations)} 篇",
         "=" * 72,
@@ -321,7 +397,7 @@ def export_author_creations(
     ]
 
     for idx, item in enumerate(creations, 1):
-        print(f"[{idx}/{len(creations)}] 讀取：{item.title}")
+        report(f"[{idx}/{len(creations)}] 讀取：{item.title}")
         try:
             article = client.article(item.url)
             body = article.body

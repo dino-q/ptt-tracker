@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import threading
+import time
 import uuid
 import webbrowser
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 # ♻️ 沿用 ptt_tool.py 的爬蟲核心與關鍵字常數
 from ptt_tool import (
@@ -31,6 +33,8 @@ from ptt_tool import (
     CONVENIENCE_KEYWORDS,
     DRINK_KEYWORDS,
     PTTClient,
+    export_author_creations,
+    parse_author,
     safe_filename,
     this_weekend_window,
 )
@@ -98,12 +102,51 @@ ALIAS_TO_BOARD.update({
 })
 
 
+# 結果分類（省錢版瀏覽用）：一篇文可同時屬多類，全都沒中＝「其他」。
+# 可在 config.json 以 "categories": {"分類名": ["詞", ...]} 覆蓋。
+DEFAULT_CATEGORY_RULES: list[tuple[str, list[str]]] = [
+    ("四大超商", [
+        "7-11", "711", "小七", "統一超商", "全家", "FamilyMart", "萊爾富", "Hi-Life",
+        "OK超商", "OKmart", "OK咖啡", "超商", "便利商店", "CITY CAFE", "Let's Café", "康康五",
+    ]),
+    ("超市量販", [
+        "全聯", "家樂福", "Carrefour", "大潤發", "愛買", "美廉社", "好市多", "Costco",
+        "楓康", "超市", "量販", "全聯小時達",
+    ]),
+    ("網購電商", [
+        "蝦皮", "shopee", "momo", "PChome", "Yahoo", "酷澎", "Coupang", "淘寶", "天貓",
+        "樂天", "東森購物", "生活市集", "松果", "Amazon", "亞馬遜", "折扣碼", "網購", "電商",
+    ]),
+    ("餐飲美食", [
+        "麥當勞", "肯德基", "KFC", "摩斯", "漢堡王", "必勝客", "達美樂", "拿坡里", "頂呱呱",
+        "星巴克", "路易莎", "85度C", "cama", "可不可", "五十嵐", "清心", "手搖", "速食",
+        "SUBWAY", "爭鮮", "壽司郎", "藏壽司", "八方雲集", "三商巧福", "鬍鬚張",
+    ]),
+    ("支付回饋", [
+        "LINE Pay", "LINEPay", "街口", "全支付", "全盈", "悠遊付", "icash", "Pi拍錢包",
+        "OPEN錢包", "信用卡", "刷卡", "回饋", "點數",
+    ]),
+]
+
+
+def load_category_rules() -> list[tuple[str, list[str]]]:
+    custom = CONFIG.get("categories")
+    if isinstance(custom, dict) and custom:
+        return [(name, list(words)) for name, words in custom.items() if words]
+    return DEFAULT_CATEGORY_RULES
+
+
+CATEGORY_RULES = load_category_rules()
+CATEGORY_NAMES = [name for name, _ in CATEGORY_RULES]
+
+
 def default_tracks() -> list[dict]:
     return [
         {
             "id": "weekend-coffee",
             "name": "省錢版｜週五六日超商咖啡/飲料優惠",
             "task": {
+                "intent": "scan",
                 "board": "Lifeismoney",
                 "queries": ["咖啡", "飲料", "全家", "7-11", "萊爾富", "康康五", "超值五六日"],
                 "scan_latest_pages": 4,
@@ -115,7 +158,37 @@ def default_tracks() -> list[dict]:
                 "max_body_reads": 30,
                 "weekend": True,
             },
-        }
+        },
+        {
+            "id": "lifeismoney-browse",
+            "name": "省錢版｜最新優惠總覽（分類瀏覽）",
+            "auto": True,
+            "task": {
+                "intent": "scan",
+                "board": "Lifeismoney",
+                "queries": [],
+                "scan_latest_pages": 6,
+                "search_pages": 3,
+                "must_groups": [],
+                "exclude": [],
+                "days": 3,
+                "read_body": False,
+                "max_body_reads": 0,
+            },
+        },
+        {
+            "id": "hot-now",
+            "name": "PTT｜當前全站熱門討論",
+            "auto": True,
+            "task": {
+                "intent": "hot",
+                "board": "",
+                "hot_boards": 10,
+                "min_push": 50,
+                "scan_latest_pages": 1,
+                "days": 2,
+            },
+        },
     ]
 
 
@@ -204,6 +277,34 @@ def parse_request(text: str) -> dict:
     wants_store = any(w in lower for w in STORE_HINTS)
     wants_drink = any(w in lower for w in DRINK_HINTS)
 
+    # 情境零之一：作者文章匯出（♻️ 沿用 ptt_tool.parse_author 的規則）
+    author = parse_author(raw)
+    if author and any(k in raw for k in ["小說", "創作", "txt", "TXT", "匯出", "下載", "做成"]):
+        return {
+            "task": {
+                "intent": "author_export",
+                "board": board or "",
+                "author": author,
+                "tag": "[創作]" if any(k in raw for k in ["小說", "創作"]) else "",
+                "max_pages": 20,
+            },
+            "summary": f"匯出作者 {author} 的文章成 TXT",
+        }
+
+    # 情境零之二：熱門討論（有板名＝該板熱門文；沒板名＝全站熱門看板掃描）
+    if any(w in raw for w in ["熱門", "爆文", "在討論什麼", "在聊什麼", "大家在討論", "大家在聊"]):
+        return {
+            "task": {
+                "intent": "hot",
+                "board": board or "",
+                "hot_boards": 10,
+                "min_push": 50,
+                "scan_latest_pages": 1 if not board else 3,
+                "days": min(days, 2) if not days_hit else days,
+            },
+            "summary": "熱門討論掃描（依推文數排序，爆=100）",
+        }
+
     # 情境一：超商 × 咖啡/飲料優惠（雙關鍵字組判定）
     if wants_store and wants_drink:
         task = default_tracks()[0]["task"].copy()
@@ -291,6 +392,28 @@ def match_groups(text: str, groups: list[list[str]]) -> tuple[bool, list[str]]:
 def hits_any(text: str, groups: list[list[str]]) -> bool:
     lower = text.lower()
     return any(_word_hit(lower, w) for group in groups for w in group if w)
+
+
+def classify(title: str) -> list[str]:
+    """依 CATEGORY_RULES 幫標題貼分類標籤（可多類；全沒中＝空 list，UI 歸「其他」）。"""
+    lower = title.lower()
+    return [name for name, words in CATEGORY_RULES if any(_word_hit(lower, w) for w in words)]
+
+
+def push_score(push: str) -> int:
+    """板面推文數欄位轉分數：爆=100、X 開頭（噓）為負、空白=0。"""
+    push = (push or "").strip()
+    if not push:
+        return 0
+    if push == "爆":
+        return 100
+    if push.startswith(("X", "x")):
+        digits = re.sub(r"\D", "", push)
+        return -(int(digits) * 10 if digits else 100)
+    try:
+        return int(push)
+    except ValueError:
+        return 0
 
 
 JOBS: dict[str, dict] = {}
@@ -413,6 +536,8 @@ def run_task(task: dict, job: dict) -> None:
                 "url": it.url,
                 "matched": matched,
                 "preview": preview,
+                "push": getattr(it, "push", ""),
+                "cats": classify(title),
             })
 
         note = ""
@@ -436,7 +561,216 @@ def run_task(task: dict, job: dict) -> None:
             job["error"] = str(exc)
 
 
-def start_job(task: dict) -> str:
+def run_author_export(task: dict, job: dict) -> None:
+    """作者文章匯出 TXT（♻️ 調用 ptt_tool.export_author_creations，加進度回報與取消）。"""
+    try:
+        client = PTTClient(delay=float(task.get("delay", 0.4)))
+        board = (task.get("board") or "").strip()
+        author = (task.get("author") or "").strip()
+        if not board or not author:
+            raise RuntimeError("作者匯出需要板名與作者帳號。")
+        tag = task.get("tag", "[創作]")
+
+        def on_progress(msg: str) -> None:
+            if job["cancel"]:
+                raise InterruptedError
+            job_log(job, msg)
+            m = re.match(r"\[(\d+)/(\d+)\]", msg)
+            if m:
+                with _jobs_lock:
+                    job["progress"] = {"done": int(m.group(1)), "total": int(m.group(2))}
+
+        job_log(job, f"搜尋 {board} 板作者 {author} 的文章（篩選：{tag or '不篩'}）")
+        collected: list = []
+        path = export_author_creations(
+            client, board, author, OUTPUT_DIR,
+            max_pages=int(task.get("max_pages", 20)),
+            tag=tag, on_progress=on_progress, collect=collected,
+        )
+        results = [{
+            "title": it.title,
+            "author": it.author or author,
+            "date": (it.date_text or "").strip(),
+            "url": it.url,
+            "matched": [],
+            "preview": "",
+            "push": getattr(it, "push", ""),
+            "cats": [],
+        } for it in collected]
+        note = f"已匯出 TXT（{len(collected)} 篇，依集數排序）：{path.resolve()}"
+        job_log(job, f"完成：{note}")
+        with _jobs_lock:
+            job["results"] = results
+            job["note"] = note
+            job["file"] = path.name
+            job["status"] = "done"
+    except InterruptedError:
+        job_log(job, "已取消")
+        with _jobs_lock:
+            job["status"] = "cancelled"
+    except Exception as exc:
+        job_log(job, f"錯誤：{exc}")
+        with _jobs_lock:
+            job["status"] = "error"
+            job["error"] = str(exc)
+
+
+def run_hot(task: dict, job: dict) -> None:
+    """熱門討論：指定板＝該板高推文文章；沒指定板＝人氣前 N 板各掃最新頁，依推文數排序。"""
+    try:
+        client = PTTClient(delay=float(task.get("delay", 0.4)))
+        board = (task.get("board") or "").strip()
+        min_push = int(task.get("min_push", 50))
+        pages = max(1, int(task.get("scan_latest_pages", 1)))
+        days = int(task.get("days") or 0)
+        today = datetime.now()
+
+        if board:
+            boards = [board]
+            note = f"{board} 板熱門文章（推文數 ≥ {min_push}，爆=100）"
+        else:
+            job_log(job, "抓取 PTT 即時熱門看板排行")
+            hot = client.hotboards(top=int(task.get("hot_boards", 10)))
+            if not hot:
+                raise RuntimeError("抓不到熱門看板排行。")
+            boards = [b["board"] for b in hot]
+            job_log(job, f"人氣前 {len(boards)} 板：{'、'.join(boards)}")
+            note = f"全站人氣前 {len(boards)} 板，推文數 ≥ {min_push}（爆=100）"
+
+        results: list[dict] = []
+        ok_boards = 0
+        for i, b in enumerate(boards, 1):
+            if job["cancel"]:
+                raise InterruptedError
+            with _jobs_lock:
+                job["progress"] = {"done": i, "total": len(boards)}
+            job_log(job, f"掃描 {b} 最新 {pages} 頁")
+            try:
+                items = client.latest_board_posts(b, pages=pages, max_posts=120)
+                ok_boards += 1
+            except Exception as exc:
+                job_log(job, f"掃描 {b} 失敗：{exc}")
+                continue
+            for it in items:
+                score = push_score(it.push)
+                if score < min_push:
+                    continue
+                dt = parse_list_date(it.date_text, today)
+                if days and dt and (today - dt).days > days:
+                    continue
+                results.append({
+                    "title": it.title,
+                    "author": it.author,
+                    "date": f"{dt:%Y-%m-%d}" if dt else (it.date_text or "").strip(),
+                    "url": it.url,
+                    "matched": [],
+                    "preview": "",
+                    "push": it.push,
+                    "score": score,
+                    "board": b,
+                    "cats": classify(it.title),
+                })
+
+        if ok_boards == 0:
+            raise RuntimeError("所有看板都掃描失敗，請確認網路或板名。")
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        results = results[:120]
+        job_log(job, f"完成：{len(results)} 篇熱門文章")
+        with _jobs_lock:
+            job["results"] = results
+            job["note"] = note
+            job["status"] = "done"
+    except InterruptedError:
+        job_log(job, "已取消")
+        with _jobs_lock:
+            job["status"] = "cancelled"
+    except Exception as exc:
+        job_log(job, f"錯誤：{exc}")
+        with _jobs_lock:
+            job["status"] = "error"
+            job["error"] = str(exc)
+
+
+def run_download(task: dict, job: dict) -> None:
+    """批次下載：把指定的文章網址逐篇抓全文（可含留言）合併成一個 TXT。"""
+    try:
+        urls = [u for u in (task.get("urls") or [])
+                if isinstance(u, str) and u.startswith("https://www.ptt.cc/bbs/")][:300]
+        if not urls:
+            raise RuntimeError("沒有可下載的文章網址。")
+        include_comments = bool(task.get("include_comments"))
+        name = (task.get("name") or "PTT文章合集").strip() or "PTT文章合集"
+        client = PTTClient(delay=float(task.get("delay", 0.4)))
+
+        chunks = [
+            f"PTT Assistant 批次下載｜{name}",
+            f"整理時間：{datetime.now():%Y-%m-%d %H:%M:%S}",
+            f"共 {len(urls)} 篇｜{'含留言' if include_comments else '僅文章'}",
+            "=" * 72,
+            "",
+        ]
+        ok = 0
+        for idx, url in enumerate(urls, 1):
+            if job["cancel"]:
+                raise InterruptedError
+            with _jobs_lock:
+                job["progress"] = {"done": idx, "total": len(urls)}
+            try:
+                art = client.article(url, include_comments=include_comments)
+                ok += 1
+                job_log(job, f"[{idx}/{len(urls)}] {art.title or url}")
+                chunks.extend([
+                    "#" * 72,
+                    art.title or "(無標題)",
+                    f"作者：{art.author}｜時間：{art.date_text}",
+                    f"網址：{url}",
+                    "#" * 72,
+                    "",
+                    art.body,
+                    "",
+                ])
+            except Exception as exc:
+                job_log(job, f"[{idx}/{len(urls)}] 讀取失敗：{exc}")
+                chunks.extend([f"【讀取失敗】{url}（{exc}）", ""])
+
+        if ok == 0:
+            raise RuntimeError("所有文章都讀取失敗，未產生檔案。")
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        suffix = "含留言" if include_comments else "文章"
+        path = OUTPUT_DIR / f"{safe_filename(name)}_{suffix}_{stamp}.txt"
+        path.write_text("\n".join(chunks), encoding="utf-8-sig")
+        job_log(job, f"完成：{ok}/{len(urls)} 篇 → {path.name}")
+        with _jobs_lock:
+            job["results"] = []
+            job["note"] = f"已產生 TXT（{ok} 篇，{suffix}）：{path.resolve()}"
+            job["file"] = path.name
+            job["status"] = "done"
+    except InterruptedError:
+        job_log(job, "已取消")
+        with _jobs_lock:
+            job["status"] = "cancelled"
+    except Exception as exc:
+        job_log(job, f"錯誤：{exc}")
+        with _jobs_lock:
+            job["status"] = "error"
+            job["error"] = str(exc)
+
+
+def run_job(task: dict, job: dict) -> None:
+    intent = (task.get("intent") or "scan").strip()
+    if intent == "author_export":
+        run_author_export(task, job)
+    elif intent == "hot":
+        run_hot(task, job)
+    elif intent == "download":
+        run_download(task, job)
+    else:
+        run_task(task, job)
+    write_cache_if_track(job)
+
+
+def start_job(task: dict, track_id: str | None = None) -> str:
     job_id = uuid.uuid4().hex[:12]
     job = {
         "id": job_id,
@@ -448,6 +782,9 @@ def start_job(task: dict) -> str:
         "error": None,
         "cancel": False,
         "task": task,
+        "track_id": track_id,
+        "kind": (task.get("intent") or "scan").strip(),
+        "file": None,
     }
     with _jobs_lock:
         JOBS[job_id] = job
@@ -456,8 +793,136 @@ def start_job(task: dict) -> str:
             for old_id in list(JOBS)[:-20]:
                 if JOBS[old_id]["status"] != "running":
                     JOBS.pop(old_id, None)
-    threading.Thread(target=run_task, args=(task, job), daemon=True).start()
+    threading.Thread(target=run_job, args=(task, job), daemon=True).start()
     return job_id
+
+
+# ---------------------------------------------------------------- 快取與自動更新
+
+CACHE_DIR = ROOT / "data" / "cache"
+AUTO_REFRESH_HOURS = float(CONFIG.get("auto_refresh_hours", 6))
+_TRACK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def cache_path(track_id: str) -> Path:
+    return CACHE_DIR / f"{track_id}.json"
+
+
+def read_cache(track_id: str) -> dict | None:
+    if not _TRACK_ID_RE.match(track_id or ""):
+        return None
+    p = cache_path(track_id)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def write_cache_if_track(job: dict) -> None:
+    """追蹤項的掃描完成後把結果寫進快取，開頁即看不用重掃。"""
+    with _jobs_lock:
+        track_id = job.get("track_id") or ""
+        if job["status"] != "done" or not track_id:
+            return
+        payload = {
+            "track_id": track_id,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "results": job["results"],
+            "note": job["note"],
+        }
+    if not _TRACK_ID_RE.match(track_id):
+        return
+    tmp = None
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        # tmp 檔名加 pid+隨機碼：同一 track 兩個寫入者（自動更新 vs 手動掃描）不共用暫存檔
+        tmp = CACHE_DIR / f"{track_id}.{os.getpid()}.{uuid.uuid4().hex[:6]}.json.tmp"
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(cache_path(track_id))
+        with _jobs_lock:
+            job["cache_written"] = True
+    except Exception as exc:
+        print(f"寫入快取失敗（{track_id}）：{exc}")
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)  # replace 失敗時清掉孤兒暫存檔
+            except Exception:
+                pass
+
+
+def cache_summary(track_id: str) -> dict | None:
+    c = read_cache(track_id)
+    if not c:
+        return None
+    return {"updated_at": c.get("updated_at"), "count": len(c.get("results") or [])}
+
+
+def cache_age_hours(track_id: str) -> float | None:
+    if not _TRACK_ID_RE.match(track_id or ""):
+        return None
+    p = cache_path(track_id)
+    if not p.exists():
+        return None
+    return (time.time() - p.stat().st_mtime) / 3600.0
+
+
+def _refresh_log(line: str) -> None:
+    """自動更新結果留檔（pythonw 排程沒 console，這是唯一的稽核痕跡）。"""
+    try:
+        log_file = ROOT / "data" / "refresh.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {line}\n")
+    except Exception:
+        pass
+
+
+def refresh_auto_tracks(force: bool = False) -> bool:
+    """依序重掃標了 auto 的追蹤項（快取超過 AUTO_REFRESH_HOURS 才掃；force=全部重掃）。
+    回傳是否全部成功。快取檔壞掉（讀不出）視同過期，避免壞檔六小時不自癒。"""
+    all_ok = True
+    for t in load_tracks():
+        if not t.get("auto"):
+            continue
+        tid = t.get("id") or ""
+        age = cache_age_hours(tid)
+        if not force and age is not None and age < AUTO_REFRESH_HOURS and read_cache(tid) is not None:
+            continue
+        age_text = "無快取" if age is None else f"{age:.1f} 小時前"
+        print(f"自動更新：{t.get('name')}（上次：{age_text}）")
+        jid = start_job(dict(t.get("task") or {}), track_id=tid)
+        with _jobs_lock:
+            job = JOBS[jid]
+        while True:
+            with _jobs_lock:
+                status = job["status"]
+            if status != "running":
+                break
+            time.sleep(1)
+        with _jobs_lock:
+            cache_written = bool(job.get("cache_written"))
+        if status == "done" and not cache_written:
+            status_text = "done（但快取寫入失敗）"
+            all_ok = False
+        else:
+            status_text = status
+            if status != "done":
+                all_ok = False
+        print(f"自動更新完成：{t.get('name')}（{status_text}）")
+        _refresh_log(f"{t.get('name')} -> {status_text}" + (f"（{job.get('error')}）" if status == "error" else ""))
+    return all_ok
+
+
+def auto_refresh_loop() -> None:
+    while True:
+        try:
+            refresh_auto_tracks()
+        except Exception as exc:
+            print(f"自動更新迴圈錯誤：{exc}")
+        time.sleep(900)  # 每 15 分鐘檢查一次是否有快取過期
 
 
 # ---------------------------------------------------------------- 匯出
@@ -479,9 +944,14 @@ def export_results_txt(name: str, results: list[dict], note: str = "") -> Path:
         chunks.append(note)
     chunks.extend(["=" * 72, ""])
     for r in results:
+        meta_line = f"作者：{r.get('author', '')}｜日期：{r.get('date', '')}"
+        if r.get("board"):
+            meta_line += f"｜看板：{r['board']}"
+        if r.get("push"):
+            meta_line += f"｜推文：{r['push']}"
         chunks.extend([
             f"【{r.get('title', '')}】",
-            f"作者：{r.get('author', '')}｜日期：{r.get('date', '')}",
+            meta_line,
             f"網址：{r.get('url', '')}",
         ])
         if r.get("matched"):
@@ -562,12 +1032,39 @@ class Handler(BaseHTTPRequestHandler):
         if route in ("/", "/index.html"):
             self._file(WEB_DIR / "index.html", "text/html; charset=utf-8")
         elif route == "/api/meta":
+            tracks = load_tracks()
+            for t in tracks:
+                t["cache"] = cache_summary(t.get("id") or "")
             self._json({
-                "tracks": load_tracks(),
+                "tracks": tracks,
                 "store_words": STORE_WORDS,
                 "drink_words": DRINK_WORDS,
                 "boards": sorted(set(ALIAS_TO_BOARD.values())),
+                "categories": CATEGORY_NAMES,
+                "auto_refresh_hours": AUTO_REFRESH_HOURS,
             })
+        elif route.startswith("/files/"):
+            # 提供 output/ 內的 TXT 讓瀏覽器直接下載；只取 basename，擋路徑跳脫
+            fname = Path(unquote(route[len("/files/"):])).name
+            target = OUTPUT_DIR / fname
+            if (not fname.lower().endswith(".txt") or not target.exists()
+                    or target.resolve().parent != OUTPUT_DIR.resolve()):
+                self._json({"error": "not found"}, 404)
+                return
+            data = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(fname)}")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif route.startswith("/api/cache/"):
+            track_id = route.rsplit("/", 1)[-1]
+            cached = read_cache(track_id)
+            if cached is None:
+                self._json({"error": "尚無快取"}, 404)
+            else:
+                self._json(cached)
         elif route == "/api/article":
             qs = parse_qs(parsed.query)
             url = (qs.get("url") or [""])[0]
@@ -592,6 +1089,8 @@ class Handler(BaseHTTPRequestHandler):
                     "results": job["results"] if job["status"] == "done" else [],
                     "note": job["note"],
                     "error": job["error"],
+                    "kind": job.get("kind", "scan"),
+                    "file": job.get("file"),
                 }
             if payload is None:
                 self._json({"error": "job not found"}, 404)
@@ -612,10 +1111,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(parse_request(text))
         elif route == "/api/run":
             task = body.get("task") or {}
-            if not (task.get("board") or "").strip():
+            intent = (task.get("intent") or "scan").strip()
+            if intent != "hot" and not (task.get("board") or "").strip():
                 self._json({"error": "缺少板名"}, 400)
                 return
-            self._json({"job_id": start_job(task)})
+            if intent == "author_export" and not (task.get("author") or "").strip():
+                self._json({"error": "作者匯出需要作者帳號"}, 400)
+                return
+            track_id = body.get("track_id")
+            if track_id and not _TRACK_ID_RE.match(str(track_id)):
+                track_id = None
+            self._json({"job_id": start_job(task, track_id=track_id)})
         elif route.startswith("/api/jobs/") and route.endswith("/cancel"):
             job_id = route.split("/")[3]
             with _jobs_lock:
@@ -623,6 +1129,18 @@ class Handler(BaseHTTPRequestHandler):
                 if job:
                     job["cancel"] = True
             self._json({"ok": True})
+        elif route == "/api/download":
+            urls = body.get("urls") or []
+            if not urls:
+                self._json({"error": "沒有可下載的文章"}, 400)
+                return
+            task = {
+                "intent": "download",
+                "urls": urls,
+                "include_comments": bool(body.get("include_comments")),
+                "name": body.get("name") or "PTT文章合集",
+            }
+            self._json({"job_id": start_job(task)})
         elif route == "/api/export":
             results = body.get("results") or []
             if not results:
@@ -659,9 +1177,17 @@ def main():
     parser = argparse.ArgumentParser(description="PTT Assistant 網頁伺服器")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--no-browser", action="store_true", help="啟動時不自動開瀏覽器")
+    parser.add_argument("--refresh-only", action="store_true",
+                        help="不開伺服器，只重掃 auto 追蹤項並更新快取後結束（給每日排程用）")
     args = parser.parse_args()
 
     load_tracks()  # 確保 tracks.json 存在
+
+    if args.refresh_only:
+        print("每日快取更新開始")
+        ok = refresh_auto_tracks(force=True)
+        print("每日快取更新結束")
+        raise SystemExit(0 if ok else 1)
 
     # Windows 的 SO_REUSEADDR 會讓同一埠被靜默重複綁定（兩個 server 搶請求），必須關掉
     class Server(ThreadingHTTPServer):
@@ -676,6 +1202,8 @@ def main():
 
     url = f"http://127.0.0.1:{args.port}"
     print(f"PTT Assistant 網頁介面：{url}（Ctrl+C 結束）")
+    # 背景自動更新：啟動先補掃過期快取，之後每 15 分鐘檢查一次
+    threading.Thread(target=auto_refresh_loop, daemon=True).start()
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

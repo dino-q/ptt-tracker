@@ -40,3 +40,90 @@
 - 給 Ray：建議做一次瀏覽器 regression——重點測「顯示內文摘要」toggle、「刪除追蹤項」、白話輸入 Enter 觸發解析、掃描進度輪詢——確認 CSS 改動沒有影響任何 click/keydown 行為（本次只動 CSS/屬性，理論上不影響，但建議實測收斂風險）。
 - 給 Andy：請記錄這次「間距/圓角系統化 + a11y 補強」的設計決策，日後若要幫這個工具加新欄位/新按鈕，沿用 `--space-*`/`--radius-*` token 即可維持一致。
 - 給 Bevis：此次為純視覺/互動品質優化，未涉及功能或產品方向判斷，無需審視。
+
+---
+
+## v2.1 增量審查（新增：模式 select、分類頁籤、卡片快取行、結果 meta 行）
+
+### 任務意圖判定
+- 屬於 ④ 審查（增量）：既有畫面上輪已過 `ui-ux-pro-max` 設計關，這次只審 v2.1 新增的 4 個元素是否與既有 token/間距/focus/hover/a11y 系統一致
+- 硬性載入 `ui-ux-pro-max`（容器內正版，未用代替方案）；Windows 主機端 `scripts/search.py` 對應資料庫不存在（`project_tor_uiuxpromax_host_gap.md` 已知現象），改用 skill 內建的 Quick Reference / Common Rules 表格直接比對，未動手前就先核對 Priority 1（a11y）、2（Touch）、4（Style 一致性）、8（Forms）、9（Navigation Patterns，分類頁籤視為 segmented control）
+- 本輪**只動 CSS**（`<style>` 區塊），完全沒有碰 `<script>`；所有 id、JS 用到的 class、事件綁定、select option value 一律未變動——這是本輪最主要的自我約束，因為新增元素本身多半是結構/邏輯正確、只是視覺細節沒跟上系統
+
+### 整體協調性檢視
+- 退一步看整張畫面：新增的 4 個元素分別落在「條件表單」「結果區上緣」「追蹤項卡片」三個既有分區內，**沒有新開版面、沒有加新的按鍵入口**，是在既有骨架裡把新資訊放進對的位置，方向正確，不需要重排或整合建議。
+- 屬於「順手收斂」而非「硬塞」的地方：
+  - `.tracks` 原本 `align-items` 用瀏覽器預設 `stretch`，v1 時所有追蹤項卡片都差不多高（沒差）；v2.1 加了 cachetime 行後，有快取的卡片變兩行、沒快取的還是一行，`stretch` 會把矮卡片硬拉到跟高卡片一樣高、內容置中留一大塊空白，看起來像排版錯誤。改成 `align-items: flex-start`，讓每張卡片維持自己內容該有的高度，這是 v2.1 這次新增內容才會暴露的問題，順手修掉。
+  - `.tab`（分類頁籤 pill）原本 `padding:6px 14px`，實測含 line-height 後可點擊熱區只有約 34px 高，低於 Priority 2「Touch & Interaction CRITICAL」的 44×44 基準，也比同頁其他按鈕（`button.ghost` 實測約 44px）矮一截，视覺上和其他控制項的「重量感」不一致。改成 `padding: var(--space-3) var(--space-4)`（12px/16px，仍在既有 4px 刻度上，沒發明新數字），熱區拉到約 46px，同時跟 `button.ghost`/`button.primary` 的觸控手感對齊。
+  - `.track .name` 原本可點擊互動只靠「hover 變色 + title 提示」，滑鼠使用者還好，但這是純視覺線索、且行動裝置沒有 hover，發現時完全看不出「這個名字可以點」。加上靜態虛線底線（hover/focus 再轉實線＋主色），符合 `color-not-only`（不能只靠顏色/hover 傳達可互動）與 `hover-vs-tap`（不能只靠 hover）。
+- 沒有硬塞的地方：conditional 欄位（`.mode-scan`/`.mode-author`/`.mode-hot`/`.mode-scanhot`）本身就是做得對的 progressive disclosure（一次只顯示當下模式相關欄位，而不是把三種模式全部欄位攤開），完全命中 Priority 8 `progressive-disclosure` 準則，這部分維持原樣、不需要我插手。
+- 發現但**沒有動手**、提出來討論的整合建議：
+  - 「模式」select（`#f-intent`）目前混在欄位格線裡，跟其他 8 個欄位平起平坐，但它其實是**支配整個表單顯隱**的主控制項（跟下面的分類頁籤角色很像：都是「先選一個大分類，再看細節」）。若之後還要加第 4、5 種模式，建議討論看看要不要把它獨立成表單上緣一排 pill/segmented control（視覺上呼應下面 `#cat-tabs` 的 pill 語言），會比繼續埋在 grid 裡更凸顯「這是先選的」。這是**結構性**改動（牽動表單版面骨架），這次先不動，留給 Dino/主 Claude 拍板要不要做。
+  - 結果 `.meta` 行（新增看板、推文數）跟卡片旁的 `.cachetime` 行都是「資訊密度較高的單行文字」，但一個用全形空格分隔、一個用「｜」分隔，兩種視覺語彙同時存在。這屬於文字內容（JS 字串 join），按本次「不動 JS」的硬性約束我沒有動，先記錄下來，若之後要動 JS 時可以順手統一成「｜」分隔，讓兩處資訊密度高的行看起來出自同一套系統。
+
+### 設計決策
+1. **`.tracks` 改 `align-items: flex-start`**：避免 cachetime 讓卡片高度不一致時被 stretch 拉出不自然留白，理由 Priority 5 `visual-hierarchy` / 卡片群一致性。
+2. **`.tab` 觸控熱區拉到 4px 刻度上的 `var(--space-3) var(--space-4)`**：命中 Priority 2 CRITICAL 觸控基準，同時跟既有按鈕的重量感對齊（Priority 4 `consistency`）；捨棄了把 pill 做得更緊湊小巧的做法，因為「小巧」在這裡等於「不好按」。
+3. **`.track .name` 補靜態虛線底線＋hover/focus 轉實線＋主色**：命中 Priority 1 `color-not-only`、Priority 2 `hover-vs-tap`；捨棄了加圖示（例如小箭頭）的做法，避免多一個裝飾元素破壞「克制」原則，底線是最輕量、最不喧賓奪主的可互動提示。
+4. **`.cachetime` 補 4px 刻度的 `margin-top` 與 `word-break: break-word`**：前者解決名稱與快取資訊兩行貼太緊的問題，後者是防禦性寫法（沿用既有 `.preview` 已經在用的 `word-break: break-word` 慣例，不是新發明），避免長字串在極窄卡片上頂破版面。
+5. **守住的底線**：完全沒碰 `<script>`；沒新增任何顏色值（全部沿用既有 `--accent`/`--ink-2`/`--line` token）；沒加陰影、圖示字型、裝飾色塊；沒有為了「更好看」把 select 換成自製下拉元件（保留原生 `<select>`，符合 `system-controls` 準則——能用原生控制項就不要自製）。
+
+### 產物位置
+- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`（只動 `<style>` 區塊內 `.tracks`、`.tab`、`.track .cachetime`、`.track .name` 四處規則，`<script>` 完全未動）
+- 執行方式：`server.py` 跑起來後開 `http://127.0.0.1:8877`，重新整理即可看到效果
+
+### 自審結果（④ 心法）
+- a11y：`.name` 靜態底線解決「純靠 hover/顏色」的可辨識性問題；但 `.name` 目前是 `<span>` 綁 click，**沒有 `tabindex`/`role`/keydown**，鍵盤使用者完全無法用 Tab 到達或用 Enter/Space 觸發——這是結構性缺口，需要動 JS 才能補（加 `tabindex="0" role="button"` + keydown 轉發 click），本輪因「不可動 JS 邏輯」的硬性限制沒有處理，**列為必須跟催的遺留問題**（見下方建議）。
+- 狀態完整度：`.tab` 的 hover/active 已有；`focus-visible` 因為 `.tab` 本質是 `<button>`，直接吃到全域 `button:focus-visible` 規則，鍵盤可見；`.name` 沒有 focus 狀態（因為完全不可 focus，見上一點）。
+- 對比：新規則沒有引入任何新色值，全部沿用上一輪已算過 AA 合格的 token，無新增對比風險。
+- RWD：`.tab` 加 `white-space: nowrap` 避免文字在 pill 內斷行變形；`.cachetime` 補 `word-break: break-word` 防止極窄螢幕爆版；未實機用瀏覽器截圖驗證（本次任務環境沒有 Playwright/瀏覽器工具可用），建議 Ray 或 Dino 直接開 `http://127.0.0.1:8877` 用手機寬度模擬看一次。
+
+### 後續建議
+- 給 Zavier（若之後要動 JS）：`.track .name` 目前是完全無法用鍵盤操作的可點擊元素（見上方 a11y 自審），建議補 `tabindex="0"`、`role="button"`、`aria-label`（例如「看『{name}』上次結果」）與 keydown（Enter/Space）轉發 click 事件；這是輕量、不影響既有邏輯的加法,但因為是本輪明確被限制的範圍（不可動 JS）沒有處理，請排進下一輪。
+- 給 Dino/主 Claude：上方「整體協調性檢視」提了兩個結構性/內容一致性建議（模式 select 要不要獨立成 pill 列、meta 與 cachetime 的分隔符號要不要統一成「｜」）——都是可做可不做的加分項，沒有急迫性，列出來供拍板，這次沒有自己動手。
+- 給 Ray：本輪只動 CSS，理論上不影響任何互動邏輯，但分類頁籤篩選、快取名稱點擊這兩個是本次視覺改動最貼近的互動，建議下次 regression 順便看一眼點擊後畫面是否如預期（結果列表依分類過濾、點名稱載入快取）。
+- 給 Andy：請記錄「v2.1 只動 CSS、不動 JS」這個範圍決策的理由（風險控管），以及新發現的 `.name` 鍵盤不可達缺口，方便追蹤何時補上。
+
+---
+
+## v2.2 分頁式重設計審查（新增：依功能分頁 IA、白話輸入升全域入口、下載全文控制）
+
+### 任務意圖判定
+- 屬於 ④ 審查：Dino 已要求整頁改成「依功能分頁」IA、Dino 端已重寫完成，這輪是審這個新 IA 的視覺層級/一致性，不是從零設計
+- 硬性載入 `ui-ux-pro-max`（容器內正版，未用代替方案）；Windows 主機端無 `scripts/search.py` 對應資料庫（`project_tor_uiuxpromax_host_gap.md` 已知現象），改用 skill 內建 Quick Reference / Priority 表直接比對，本輪對照 Priority 4（Style Selection：一致性）、Priority 9（Navigation Patterns：`nav-hierarchy` 主次導覽要清楚分離）、Priority 8（Forms & Feedback：控制項分組）、Priority 5（RWD）
+- 本輪用 Playwright（沿用 `Desktop\automation\Playwright` 集中安裝的 venv，跑完即刪除一次性腳本子資料夾，不留任務殘留）對 `http://127.0.0.1:8877` 實機截圖驗證（含 375px 窄螢幕），不是只看程式碼猜效果——落實「改 UI 後必須用真實瀏覽器驗證」的既有規則
+
+### 整體協調性檢視
+- 退一步看整張畫面：新 IA（白話輸入 → 功能頁籤 → 功能控制卡 → 共用結果區）骨架合理，資訊優先序清楚，不需要重排版面順序。
+- 這次改動屬於**收斂既有兩層 pill 的視覺權重**，不是加新元素：Dino 提到的疑慮成立——上一輪我建議的「pill 樣式呼應分類頁籤」讓 `.viewbtn`（頁面級功能頁籤）跟 `.tab`（結果區分類頁籤）active 時是同一種實心深綠色圓角膠囊，字級/padding 只差一點，實機截圖比對後兩層在視覺上幾乎融成同一種控制項，違反 Priority 9 `nav-hierarchy`（主次導覽必須清楚分離）。修法是**同語彙、不同權重**，不是砍掉重練：
+  - `.viewbtn`（主層級）：外面包一層淡灰底、圓角軌道容器（segmented rail），字重拉到 600，active 維持實心 `--accent` 填色＋淡陰影——用「有沒有外層容器」這個結構性差異，直接跟下面的分類頁籤拉開，比單靠字級差更明確。
+  - `.tab`（次層級，結果區分類頁籤）：active 狀態從實心 `--accent` 改成淡底 `--accent-soft` ＋描邊＋`--accent` 文字，不再跟主導覽搶同一種「深綠實心」的視覺重量；pill 本身縮小一點（padding 12px/16px → 7px/16px，字級 .88rem → .85rem），視覺上明顯讓位給主導覽。
+  - 兩者仍是同一個「pill 家族」（圓角、間距刻度、hover 邏輯一致），只是用容器 + 填色深淺建立清楚的主/次關係——這是我認為對的取捨：完全維持 pill 語彙的一致性（不引入新元件語言），只調整權重就解決混淆，不需要跟 Dino 討論結構性大改。
+- 下載控制（`#results-head` 內的「含留言」checkbox ＋「下載全文 TXT」按鈕）原本跟「結果內過濾」input 平鋪在同一排、沒有分組——瀏覽用途（過濾）跟匯出用途（下載）混在一起，使用者掃過去分不出這兩件事是不同操作。改法：把 checkbox＋按鈕包進一個 `.export-actions` 群組，用 `margin-left:auto` 推到最右、加一條 `border-left` 分隔線跟過濾輸入框拉開，形成清楚的「左：瀏覽 / 右：匯出」兩群。這是**順手收斂**、不是硬塞——沒有加任何新按鈕或新欄位，只是把已存在的兩個控制項重新分組，且完全沒有動 `id`/`class`（`dl-comments`、`btn-export`、`runbtn`），JS 選取器不受影響。
+- 沒有發現需要跟 Dino 討論的結構性整合建議——本輪疑慮（兩層 pill 混淆、下載控制未分組）都是「局部協調性修整」層級（對齊、間距、層次、配色），照協議可以直接做，不需要上呈拍板。
+
+### 設計決策
+1. **`.views` 包一層淡灰軌道容器（segmented rail）**：`background:var(--chip)`、`padding:3px`、`border-radius:var(--radius-pill)`，`.viewbtn` 本身改 `background:transparent`、`border:0`，只有 active 時才填 `--accent` 實色＋淡陰影。理由：Priority 9 `nav-hierarchy`——用「有沒有外層容器」這個結構訊號區分主導覽，比純調字級更明確、也更符合「segmented control」這個使用者熟悉的心智模型（一組按鈕代表『你正在哪一個功能』）。
+2. **`.tab`（結果分類頁籤）active 改淡底描邊**：`background:var(--accent-soft)`、`border-color:var(--accent)`、`color:var(--accent)`、`font-weight:600`，捨棄原本的實心填色。理由：次層級的視覺重量必須明顯低於主導覽，才不會讓使用者以為這是另一組平行的頁面切換；同時 pill 尺寸也縮小一級（`padding:7px 16px`，字級 .85rem），與主導覽的 `padding:10px 20px`／字級 .95rem 拉開差距，形成一眼可辨的大小階層。
+3. **下載控制分組 `.export-actions`**：右側群組加 `border-left:1px solid var(--line)` 分隔線＋`margin-left:auto`，把「過濾（瀏覽）」與「含留言＋下載全文（匯出）」視覺上分成兩群；窄螢幕（≤420px）媒體查詢把分隔線改成 `border-top`、群組改滿版 `justify-content:space-between`，避免堆疊時分隔線斷在奇怪位置。理由：Priority 8 `field-grouping`（相關控制項邏輯分組）。
+4. **順手補 `.checkline` 垂直 padding（8px 0）**：讓「含留言」checkbox 的可點擊標籤高度更接近其他按鈕的觸控熱區，跟既有 `.track button.del`/`.item .toggle` 熱區加大的既有慣例一致（v2.0 已建立的準則），不是本輪新標準。
+5. **克制**：沒有新增顏色值（`--accent-soft`/`--chip`/`--line` 都是既有 token）；沒有加陰影堆疊、圖示、裝飾色塊；兩層 pill 差異靠「容器有無＋填色深淺＋尺寸」三個既有手法組合，沒有引入新的視覺語言（例如底線導覽、圖示切換等）——維持整站只有一種導覽語彙（pill）的一致性。
+
+### 產物位置
+- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`
+  - CSS：`.views`/`.viewbtn`、`.tabs`/`.tab`、`#results-head`、新增 `.export-actions`、`.checkline` 補 padding、`@media (max-width:420px)` 補三條規則
+  - HTML：`#results-head` 內把既有 `#dl-comments` checkbox 與 `#btn-export` 按鈕包進新的 `<div class="export-actions">` 容器（純結構包裝，兩者 id/class 原樣保留，`btn-export` 仍是 `.ghost.runbtn`）
+  - `<script>` 完全未動；所有硬性保留的 id/data-view/class（`viewbtn`/`active`/`view`/`tab`/`track`/`run`/`del`/`name`/`clickable`/`cachetime`/`runbtn`/`item`/`open`/`preview`/`toggle`/`chip`/`chips`/`meta`/`card`/`empty`/`error`/`checkline`）一律未改名
+- 執行方式：`server.py` 跑起來後開 `http://127.0.0.1:8877`，重新整理即可看到效果
+- 驗證截圖（Playwright 實機截圖，非猜測）：`tests/screenshots/tor_v22_top.png`（桌面寬度主導覽＋分類頁籤對比）、`tor_v22_head.png`（下載控制分組）、`tor_v22_narrow_nav.png`／`tor_v22_narrow_head.png`（375px 窄螢幕堆疊效果）
+
+### 自審結果（④ 心法）
+- a11y：兩層 pill 都仍是原生 `<button>`，全域 `button:focus-visible` outline 規則不受影響（`.viewbtn` 拿掉 border 不影響 outline，outline 是獨立盒模型層）；`.tab.active` 新色組 `--accent`(#2f6f5e) 文字 on `--accent-soft`(#e7f1ee) 底，對比遠高於 4.5:1 AA 門檻；`.export-actions` 純結構包裝未動任何 `for`/`id` 關聯，`dl-comments` 的 `<label>` 仍正確包住 checkbox。
+- 狀態完整度：`.viewbtn`/`.tab` 的 hover/active/focus 三態齊全（沿用既有 transition）；未新增 disabled/loading 狀態需求（下載按鈕本身已有 `.runbtn` 統一 disable 機制,本輪未動）。
+- RWD：已用 Playwright 在 1000px 與 375px 兩種寬度實機截圖確認——桌面下主導覽軌道與分類頁籤層級分明；375px 下 `.views` 自然換行仍維持同一軌道背景（視覺不斷裂），`#results-head` 的匯出群組改為滿版堆疊＋上框線，未爆版、未重疊。
+- 對比：本輪沒有引入任何新色值，全部沿用既有 token（`--accent`/`--accent-soft`/`--chip`/`--line`），無新增對比風險。
+
+### 後續建議
+- 給 Bevis：本輪為純視覺層級收斂，未涉及功能或產品方向判斷，無需審視。
+- 給 Ray：建議做一次瀏覽器 regression——重點測分類頁籤切換（`#cat-tabs` 篩選是否仍正確過濾清單）、下載全文按鈕（`btn-export` 位置移動後點擊是否仍觸發 `/api/download`）、白話輸入解析後自動切頁；本輪只動 CSS 與一層 HTML 結構包裝，理論上不影響任何 click/keydown 邏輯，但建議實測收斂風險。
+- 給 Andy：請記錄這次「兩層 pill 同語彙不同權重」與「下載控制分組」的設計決策，日後若某功能頁的控制卡要再加新的批次操作按鈕，優先考慮沿用 `.export-actions` 的分組手法（`margin-left:auto` + 分隔線），而不是繼續平鋪塞進同一排。

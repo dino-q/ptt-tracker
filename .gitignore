@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 output/
+data/
 tracks.json
 tracks.json.bak
 *.json.tmp
