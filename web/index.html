@@ -320,7 +320,7 @@
         </div>
         <div class="field">
           <label for="f-a-tag">標題篩選字串（留空＝全部文章）</label>
-          <input id="f-a-tag" value="[創作]">
+          <input id="f-a-tag" placeholder="例：[創作]（只抓標題含此字串的文章）">
         </div>
       </div>
       <div class="row-actions">
@@ -651,7 +651,7 @@ $("btn-parse").addEventListener("click", async () => {
     if (t.intent === "author_export") {
       $("f-a-board").value = t.board || "";
       $("f-a-author").value = t.author || "";
-      $("f-a-tag").value = t.tag !== undefined ? t.tag : "[創作]";
+      $("f-a-tag").value = t.tag !== undefined ? t.tag : "";
       switchView("author");
     } else if (t.intent === "hot") {
       $("f-h-board").value = t.board || "";
