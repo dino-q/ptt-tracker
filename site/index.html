@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PTT 追蹤（省錢優惠・熱門文章）</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --surface: #ffffff; --ink: #1f2733; --ink-2: #5b6675;
+    --line: #e3e7ec; --accent: #2f6f5e; --accent-ink: #ffffff; --accent-soft: #e7f1ee;
+    --warn: #b4552d; --chip: #eef1f4;
+    --radius: 10px; --radius-sm: 8px; --radius-pill: 999px;
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
+    font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-8); }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  header.site { padding: var(--space-2) 0 var(--space-5); border-bottom: 1px solid var(--line); margin-bottom: var(--space-6); }
+  header.site h1 { margin: 0; font-size: 1.5rem; font-weight: 600; }
+  header.site p { margin: var(--space-1) 0 0; color: var(--ink-2); font-size: .92rem; }
+
+  .views {
+    display: flex; flex-wrap: wrap; gap: 2px; width: fit-content; max-width: 100%;
+    background: var(--chip); border-radius: var(--radius-pill); padding: 3px; margin-bottom: var(--space-5);
+  }
+  .viewbtn {
+    background: transparent; border: 0; color: var(--ink-2); cursor: pointer;
+    border-radius: var(--radius-pill); padding: 10px var(--space-5);
+    font-size: .95rem; font-weight: 600; white-space: nowrap;
+  }
+  .viewbtn:hover { color: var(--accent); }
+  .viewbtn.active { background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 2px rgba(31,39,51,.15); }
+
+  .note { background: var(--accent-soft); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
+  .tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .tab {
+    background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); cursor: pointer;
+    border-radius: var(--radius-pill); padding: 7px var(--space-4); font-size: .85rem; white-space: nowrap;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--accent); }
+  .tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+  #head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); }
+  #count { font-size: .95rem; color: var(--ink-2); }
+  #filter-box {
+    flex: 1; min-width: 160px; padding: 8px 12px; font-size: .92rem;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-3);
+  }
+  .card h3 { margin: 0 0 var(--space-1); font-size: 1rem; font-weight: 600; }
+  .card h3 a { color: var(--ink); text-decoration: none; }
+  .card h3 a:hover { color: var(--accent); text-decoration: underline; }
+  .meta { font-size: .83rem; color: var(--ink-2); }
+  .chips { margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: var(--radius-pill); padding: 2px 10px; font-size: .8rem; color: var(--ink-2); }
+  .empty { color: var(--ink-2); font-size: .95rem; }
+  .error { color: var(--warn); font-weight: 600; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  footer { color: var(--ink-2); font-size: .78rem; border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-8); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <h1>PTT 追蹤</h1>
+    <p>省錢優惠與全站熱門文章，每 6 小時自動更新。</p>
+  </header>
+
+  <nav class="views" aria-label="功能切換">
+    <button class="viewbtn active" data-view="money">省錢優惠</button>
+    <button class="viewbtn" data-view="hot">熱門文章</button>
+  </nav>
+
+  <div id="note" class="note" style="display:none"></div>
+  <div class="tabs" id="cat-tabs" style="display:none"></div>
+  <div id="head">
+    <span id="count"></span>
+    <label class="sr-only" for="filter-box">在結果中過濾</label>
+    <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
+  </div>
+  <div id="items"><p class="empty">載入中…</p></div>
+
+  <footer>
+    資料來源：PTT 網頁版公開內容，優惠與內容以原文及官方公告為準。本頁為唯讀瀏覽；作者下載等完整功能在本機版工具。
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const DATA = { money: null, hot: null };
+let VIEW = "money";
+let ACTIVE_CAT = "全部";
+
+async function load(view) {
+  if (DATA[view]) return DATA[view];
+  const r = await fetch(`data/${view}.json`, { cache: "no-store" });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  DATA[view] = await r.json();
+  return DATA[view];
+}
+
+function render() {
+  const d = DATA[VIEW];
+  if (!d) return;
+  $("note").style.display = "block";
+  $("note").textContent = (d.note ? d.note + "｜" : "") + "更新於 " + d.updated_at;
+  renderTabs(d);
+  applyFilters(d);
+}
+
+function renderTabs(d) {
+  const box = $("cat-tabs");
+  box.innerHTML = "";
+  const hasCats = d.results.some(r => (r.cats || []).length);
+  if (!hasCats) { box.style.display = "none"; return; }
+  const names = ["全部", ...(d.categories || []).filter(c => d.results.some(r => (r.cats || []).includes(c)))];
+  if (d.results.some(r => !(r.cats || []).length)) names.push("其他");
+  for (const n of names) {
+    const count = n === "全部" ? d.results.length
+      : n === "其他" ? d.results.filter(r => !(r.cats || []).length).length
+      : d.results.filter(r => (r.cats || []).includes(n)).length;
+    const b = document.createElement("button");
+    b.className = "tab" + (n === ACTIVE_CAT ? " active" : "");
+    b.textContent = `${n} ${count}`;
+    b.addEventListener("click", () => { ACTIVE_CAT = n; render(); });
+    box.appendChild(b);
+  }
+  box.style.display = "flex";
+}
+
+function applyFilters(d) {
+  let list = d.results;
+  if (ACTIVE_CAT !== "全部") {
+    list = ACTIVE_CAT === "其他"
+      ? list.filter(r => !(r.cats || []).length)
+      : list.filter(r => (r.cats || []).includes(ACTIVE_CAT));
+  }
+  const q = $("filter-box").value.trim().toLowerCase();
+  if (q) list = list.filter(r => (r.title + " " + (r.author || "") + " " + (r.board || "")).toLowerCase().includes(q));
+  $("count").textContent = `共 ${list.length} 篇`;
+  const box = $("items");
+  box.innerHTML = "";
+  if (!list.length) { box.innerHTML = '<p class="empty">沒有符合條件的文章。</p>'; return; }
+  for (const r of list) {
+    const div = document.createElement("div");
+    div.className = "card";
+    const h = document.createElement("h3");
+    const a = document.createElement("a");
+    a.href = r.url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = r.title;
+    h.appendChild(a);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const bits = [r.date || "", r.author || ""];
+    if (r.board) bits.push(r.board + " 板");
+    if (r.push) bits.push("推文 " + r.push);
+    meta.textContent = bits.filter(Boolean).join("　");
+    div.append(h, meta);
+    if (r.matched && r.matched.length) {
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const m of r.matched) {
+        const c = document.createElement("span");
+        c.className = "chip"; c.textContent = m;
+        chips.appendChild(c);
+      }
+      div.appendChild(chips);
+    }
+    box.appendChild(div);
+  }
+}
+
+$("filter-box").addEventListener("input", () => { const d = DATA[VIEW]; if (d) applyFilters(d); });
+document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", async () => {
+  VIEW = b.dataset.view;
+  ACTIVE_CAT = "全部";
+  $("filter-box").value = "";
+  document.querySelectorAll(".viewbtn").forEach(x => x.classList.toggle("active", x === b));
+  try { await load(VIEW); render(); }
+  catch (e) { $("items").innerHTML = `<p class="error">載入失敗：${e.message}</p>`; }
+}));
+
+(async () => {
+  try { await load("money"); render(); }
+  catch (e) { $("items").innerHTML = `<p class="error">載入失敗：${e.message}</p>`; }
+  load("hot").catch(() => {});  // 預先抓熱門資料
+})();
+</script>
+</body>
+</html>
