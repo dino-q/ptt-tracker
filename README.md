@@ -13,7 +13,7 @@
 
 - **開頁即看**：省錢版總覽與全站熱門有每日自動更新的快取，開頁面直接顯示最新結果（顯示更新時間），不用按掃描。點追蹤項名稱可隨時切換看各自的快取。
 - **省錢版分類頁籤**：全部／四大超商／超市量販／網購電商／餐飲美食／支付回饋／其他（一篇可屬多類）。分類詞可在 `config.json` 的 `categories` 覆蓋。
-- **作者文章匯出模式**：白話輸入「幫我上PTT的GAY版找feverwill這個作者，並且把他的小說做成txt檔」→ 自動切到作者模式 → 匯出集數排序的合併 TXT 到 `output/`。
+- **作者文章匯出模式**：白話輸入「幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔」→ 自動切到作者模式 → 匯出集數排序的合併 TXT 到 `output/`。
 - **熱門討論模式**：「當前PTT的熱門討論」＝人氣前 10 板跨板掃高推文文章；「八卦版有什麼爆文」＝單板熱門。推文門檻可調（爆=100）。
 - **每日排程**：Windows 排程 `PTT_Assistant_DailyCache` 每日 08:30 無視窗更新快取（搬資料夾前先看 `路徑相依_搬移前必讀.md`）。
 
@@ -48,19 +48,19 @@ http://127.0.0.1:8877
 
 ## 你要的兩個情境
 
-### 1. 找 gay 板 feverwill 的創作並整理成 TXT
+### 1. 找某個板某位作者的創作並整理成 TXT
 
-在資料夾內執行：
+在資料夾內執行（以 marvel 板作者 abc123 為例）：
 
 ```bat
-python ptt_tool.py "幫我上PTT的GAY版找feverwill這個作者，並且把他的小說做成txt檔"
+python ptt_tool.py "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔"
 ```
 
 工具會：
 
-1. 解析 `GAY版` → `gay`
-2. 解析作者 `feverwill`
-3. 使用 PTT 原生 `author:feverwill` 搜尋
+1. 解析 `marvel版` → `marvel`
+2. 解析作者 `abc123`
+3. 使用 PTT 原生 `author:abc123` 搜尋
 4. 篩選標題含 `[創作]` 的文章
 5. 逐篇讀取文章
 6. 去除 PTT 標頭、推文、發信站資訊
@@ -70,13 +70,13 @@ python ptt_tool.py "幫我上PTT的GAY版找feverwill這個作者，並且把他
 輸出在：
 
 ```text
-output/feverwill_gay_創作.txt
+output/abc123_marvel_創作.txt
 ```
 
 也可使用明確參數：
 
 ```bat
-python ptt_tool.py --board gay --author feverwill
+python ptt_tool.py --board marvel --author abc123
 ```
 
 ---
@@ -138,7 +138,7 @@ python ptt_tool.py "你的要求"
 
 目前會優先理解：
 
-- `GAY版 / gay板`
+- 任何「XX版 / XX板」寫法（英文板名或內建別名）
 - `省錢版 / Lifeismoney`
 - `找 XXX 這個作者`
 - `作者 XXX`

@@ -7,7 +7,7 @@ PTT Assistant
 - Lifeismoney weekend convenience-store coffee/drink deal tracker
 
 Usage:
-    python ptt_tool.py "幫我上PTT的GAY版找feverwill這個作者，並且把他的小說做成txt檔"
+    python ptt_tool.py "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔"
     python ptt_tool.py "幫我找這週五六日超商咖啡或飲料優惠"
 """
 
@@ -36,11 +36,8 @@ USER_AGENT = (
 )
 
 BOARD_ALIASES = {
-    "gay": "gay",
-    "gay版": "gay",
-    "gay板": "gay",
-    "同志版": "gay",
-    "同志板": "gay",
+    "媽佛版": "marvel",
+    "媽佛板": "marvel",
     "省錢版": "Lifeismoney",
     "省錢板": "Lifeismoney",
     "lifeismoney": "Lifeismoney",
@@ -313,11 +310,11 @@ def parse_board(text: str) -> str:
     m = re.search(r"PTT(?:的|上)?\s*([A-Za-z0-9_]+)(?:版|板)", text, re.I)
     if m:
         return m.group(1)
-    return "gay" if "feverwill" in lower else "Lifeismoney"
+    return "Lifeismoney"
 
 
 def parse_author(text: str) -> Optional[str]:
-    # "找 feverwill 這個作者", "作者 feverwill"
+    # "找 abc123 這個作者", "作者 abc123"
     patterns = [
         r"找\s*([A-Za-z0-9_-]{2,})\s*這個作者",
         r"作者(?:是|為|:|：)?\s*([A-Za-z0-9_-]{2,})",
@@ -575,7 +572,7 @@ def main():
             request = " ".join(args.request).strip()
             if not request:
                 print("請輸入一句話要求，例如：")
-                print('  python ptt_tool.py "幫我上PTT的GAY版找feverwill這個作者，並且把他的小說做成txt檔"')
+                print('  python ptt_tool.py "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔"')
                 print('  python ptt_tool.py "幫我找這週五六日超商咖啡或飲料優惠"')
                 sys.exit(2)
             path = run_natural_language(request, out_dir, args.delay)

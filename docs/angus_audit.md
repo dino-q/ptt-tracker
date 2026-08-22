@@ -78,7 +78,7 @@
 ## 附帶觀察（非 bug）
 
 - `docs/CODE_MAP.md` 小落差：登錄的 `export_results_txt(name, results)` 實際簽名多一個 `note`；新寫的可重用 helper `_word_hit` / `hits_any` / `detect_board` / `parse_days` / `start_job` 尚未登錄（全域規範要求新可重用函式當下登錄）。
-- `parse_request` 的板名別名比對用 lower、移除用原字串（server.py:164-166 vs 208-209）→ 大寫輸入殘留。實測「GAY版找feverwill的小說」→ `queries=['GAY版','feverwill的小說']`（板名正確判成 gay，但 GAY版 混進關鍵字）。改 `re.sub(re.escape(board_alias), " ", cleaned, flags=re.I)`。UI 可修正，故只列這裡。
+- `parse_request` 的板名別名比對用 lower、移除用原字串（server.py:164-166 vs 208-209）→ 大寫輸入殘留。實測「MARVEL版找abc123的文章」→ `queries=['MARVEL版','abc123的文章']`（板名正確判出，但大寫板名字串混進關鍵字）。改 `re.sub(re.escape(board_alias), " ", cleaned, flags=re.I)`。UI 可修正，故只列這裡。
 - `parse_list_date` 解析失敗回 None（server.py:242-257），而 347 的過濾是 `days and dt and ...` → **日期不明的文章一律放行**。實測非閏年遇到列表上的 `2/29` 會回 None。目前 sort 會把它們排在最後、date 欄位顯示原始 `M/DD`，可接受，但要意識到「10 天內」不保證。
 - `parse_request` 抗壓正常：空字串/純標點/單字/`最近999天`/60k 字（4ms）都回合法 task，`FILLER_WORDS` 有 `re.escape`（215），無 catastrophic backtracking。
 - `PTT工具.bat` 本體檢查通過：CRLF 53 行 / LF-only 0、UTF-8 無 BOM、`chcp 65001` 在所有中文輸出之前、`set /p` 預設值 1 可直接 Enter、CLI 分支有 errorlevel 判斷＋pause。唯一缺口是網頁分支缺 pause（B3）。

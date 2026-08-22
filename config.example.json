@@ -1,10 +1,9 @@
 {
   "default_delay_seconds": 0.8,
   "boards": {
-    "gay": [
-      "gay",
-      "GAY版",
-      "同志版"
+    "marvel": [
+      "媽佛版",
+      "媽佛板"
     ],
     "Lifeismoney": [
       "省錢版",
