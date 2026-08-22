@@ -1,6 +1,10 @@
 # PTT Assistant
 
+> **想知道怎麼用？看 [`使用說明.md`](使用說明.md)**（線下版啟動、線上版網址、功能與差異）。
+> 本檔是開發沿革與技術紀錄。
+
 這是一個 Windows / macOS / Linux 都能執行的 Python 小工具，目標是讓你直接用一句中文要求整理 PTT。
+線上版：https://dino-q.github.io/ptt-tracker/（GitHub Actions 自動更新）。
 
 ## v2.2 更新（2026-08-22）：依功能分頁重設計
 

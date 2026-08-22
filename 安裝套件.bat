@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal
 cd /d "%~dp0"
 chcp 65001 >nul
@@ -80,8 +80,6 @@ echo ==================================================
 echo.
 echo You can now run:
 echo     PTT工具.bat
-echo or:
-echo     週末咖啡飲料優惠.bat
 echo.
 pause
 exit /b 0
