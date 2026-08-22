@@ -146,3 +146,31 @@
 若還有一輪餘裕，最划算的是 **R1（2 行）＋ R2（1 行）**——這兩條正好補完 B1/B3 的最後一哩，其餘可排進下次。
 
 環境交還：我起的測試 process（8973）已全部清掉，`netstat` 8877 只剩你那一支（PID 38408）；探測時誤建的 `output/x_20260822_1706.txt` 已刪除，`git status` clean。測試期間我用直接 API 打了 1 個小 job（Stock 板、2 個單字關鍵字、不讀內文），已自然跑完。
+
+---
+
+# 最終確認 2026-08-22（Angus 第三輪，範圍限 commit a8479cc）
+
+`git show a8479cc` 只動 `web/index.html`（+30/-5）與本報告，無夾帶其他檔案；working tree clean。
+先確認測的是新前端：`curl http://127.0.0.1:8877/` 抓回的 HTML 與 `web/index.html` **byte-identical**（`_file()` 每個請求重讀檔案，前端改動即時生效，你的說法成立）；抽出 `<script>` 用 `node --check` 通過（10,164 字，無語法錯）。
+
+- ✅ **R1 啟動競態** — index.html:391-392 先 `JOB = "pending"` ＋ `disabled = true` **才**進 `await`，入口 `if (JOB)`（389）吃得到 truthy 的 `"pending"` → await 空窗期的第二次點擊被同步擋掉；catch（406-410）歸還 `JOB = null` ＋ 恢復按鈕，失敗後不會卡死。`btn-cancel` 加 `JOB !== "pending"`（457）避免打出 `/api/jobs/pending/cancel`（該按鈕在 pending 期間本來就還沒顯示，屬雙保險，正確）。逐路徑檢查 POLL 生命週期：唯一建立點在 398、終止點 413/428 各自 `clearInterval` 且建立前先清（389）→ 不存在「JOB=pending 時還有舊 interval 在跑」的組合。
+- ✅ **R2 收尾訊息進使用者視線** — 三種收尾都 append 進 `#log`（432-437、443-445）並捲到底；`#log` 有 `aria-live="polite"` 且就在進度區內。時序正確：三處都在 `clearInterval` 之後才 append，不會被下一輪 `$("log").textContent = j.log.join("\n")`（408）洗掉。（`#progress` 的 h2 仍寫「掃描中」，但 log 已明說「掃描已停止：…」，達到我原本要求的效果。）
+- ✅ **R3 改用 status code** — `api()` 掛 `err.status = r.status`（297-301），判定改 `e.status === 404`（441）。網路層失敗（fetch reject）沒有 `status`（undefined）→ 落回「連續 5 次」計數，行為正確；不再受錯誤文案改字影響。
+- ✅ **R4 旗標黏性** — `$("f-board")` 的 `input` 監聽清 `WEEKEND_FLAG`（459）。關鍵細節正確：`fillForm` 是程式化賦值（`$("f-board").value = ...`），**不會**觸發 `input` 事件，所以按追蹤項載入條件時旗標不會被自己清掉（且 349 的旗標賦值在 342 之後，即使誤觸也不影響）。
+- ✅ 服務端未動（`git show --stat` 只有 index.html），上一輪 B1/B2/B3 與原子寫入等驗收結果繼續有效，無需回歸。
+
+## 觀察（皆非問題，記給下一輪）
+
+- `runTask` 的 catch 沒有 `clearInterval(POLL)`：只有在 `post()` 成功、`setInterval` 已建立、之後的 DOM 呼叫（`scrollIntoView`）拋錯時才會留下孤兒 interval。實務上不會發生，補一行更對稱。
+- 同理，`post()` 若回 200 但 body 沒有 `job_id`（本 server 不可能，`/api/run` 永遠帶），`JOB` 會變 `undefined` → 按鈕停在 disabled。要更保險可加 `if (!j.job_id) throw new Error("伺服器未回傳 job_id")`。
+- `GET /` 沒有 `Cache-Control` / `ETag` / `Last-Modified`（實測回應標頭只有 Server/Date/Content-Type/Content-Length）。導航（非重新整理）時瀏覽器可能用啟發式快取給舊 HTML；日後改前端後若「看起來沒生效」，先想到這點。加 `Cache-Control: no-store` 一行可免疫。
+- `tracks.json.bak` 被第二次壞檔覆蓋（已列後續事項，同意不在本輪處理）。
+- R4 只清在 `#f-board`；使用者只改關鍵字不改板名時旗標仍留著（顯示層小瑕疵，可接受）。
+- 上一輪列的「仍未修」清單（`/api/run` 型別與上限驗證、cancel 未知 job 假成功、取消時丟棄已抓結果、`item.url` 未白名單、`board` 未約束、`log_message` 的 `args[1]`、內文讀取失敗未計數、`readForm` 寫死 `search_pages`/`max_body_reads`、CODE_MAP 落差等）不變，屬後續事項。
+
+## VERDICT（最終）
+
+`VERDICT: clean — safe to deliver`
+
+blocker 0、⚠️ 0。三輪累計：3 個 blocker（重複啟動掃描的孤兒 job／Windows 埠靜默重複綁定／輪詢靜默吞沒）＋ 4 個殘留全部修完並實測驗收；其餘為不阻擋的後續事項，已在本報告留清單。可以交付 Dino。
