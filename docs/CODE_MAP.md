@@ -44,6 +44,7 @@
 | `classify(title)` / `CATEGORY_RULES` | 標題分類標籤（四大超商/超市量販/網購電商/餐飲美食/支付回饋，可多類） | config.json `categories` 可覆蓋 |
 | `push_score(push)` | 推文數欄位轉分數（爆=100、X=負） | |
 | 快取層 `read_cache/write_cache_if_track/cache_summary` | 追蹤項結果快取 `data/cache/{id}.json`（原子寫入） | 開頁即看不用重掃 |
+| `mark_new_results(results, old)` | 跟上一版比對標 new=True（UI 顯「新」徽章）；無舊資料不標 | 🆕 build_site 線上版同用 |
 | `refresh_auto_tracks(force)` / `auto_refresh_loop()` | auto 追蹤項自動重掃（啟動補掃＋每15分檢查，快取 6 小時過期） | `--refresh-only` 給每日排程 `PTT_Assistant_DailyCache` 用 |
 | `export_results_txt(name, results)` | 掃描結果 → output/*.txt（含看板/推文欄位） | |
 | Job 機制（`JOBS` dict + thread） | 背景執行＋進度輪詢＋取消 | `/api/run` → `/api/jobs/<id>` |
@@ -67,7 +68,7 @@
 | `GET /api/cache/<track_id>` | 追蹤項快取結果（開頁即看） |
 | `POST /api/download` | 批次下載：urls＋include_comments → job，完成後 job.file 可下載 |
 | `GET /files/<name>.txt` | 下載 output/ 內的 TXT（Content-Disposition attachment，擋路徑跳脫） |
-| `POST /api/export` | （舊）結果索引匯出 TXT；UI 已改用 /api/download |
+| ~~`POST /api/export`~~ | 已移除（2026-08-22）：UI 改用 /api/download 批次下載全文 |
 | `POST /api/tracks` | 新增/更新/刪除追蹤項 |
 
 ## 線上版（GitHub Pages，詳見 GIT_PUBLISH.md）

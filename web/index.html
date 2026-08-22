@@ -225,6 +225,11 @@
     margin-top: var(--space-2); background: none; border: 0; color: var(--accent);
     cursor: pointer; font-size: .85rem; padding: 4px 2px;
   }
+  .badge-new {
+    display: inline-block; background: var(--warn); color: #fff;
+    border-radius: var(--radius-pill); font-size: .72rem; font-weight: 600;
+    padding: 1px 8px; margin-right: 6px; vertical-align: 2px;
+  }
   .empty { color: var(--ink-2); font-size: .95rem; }
   #export-path { font-size: .85rem; color: var(--accent); word-break: break-all; }
   .error { color: var(--warn); font-size: .9rem; font-weight: 600; }
@@ -862,6 +867,12 @@ function renderItems(list) {
     const div = document.createElement("div");
     div.className = "item card";
     const h = document.createElement("h3");
+    if (r.new) {
+      const badge = document.createElement("span");
+      badge.className = "badge-new";
+      badge.textContent = "新";
+      h.appendChild(badge);
+    }
     const a = document.createElement("a");
     a.href = r.url; a.target = "_blank"; a.rel = "noopener";
     a.textContent = r.title;

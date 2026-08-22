@@ -790,11 +790,15 @@ def run_hot(task: dict, job: dict) -> None:
             if dt is None:
                 dt_fail += 1
             age_h = max((now - dt).total_seconds() / 3600.0, 0.1) if dt else None
+            # 反正已經進過文章頁，順手帶出內文摘要（零額外請求）
+            preview = re.sub(r"\n{3,}", "\n\n", art.body).strip()
+            if len(preview) > 900:
+                preview = preview[:900].rstrip() + "\n……（已截短，請開原文）"
             results.append({
                 **c,
                 "date": f"{dt:%m-%d %H:%M}" if dt else c["date"],
                 "matched": [],
-                "preview": "",
+                "preview": preview,
                 "cats": hot_cats(c["board"]),
                 "comments": comments,
                 "users": ps.get("users", 0),
@@ -958,20 +962,33 @@ def read_cache(track_id: str) -> dict | None:
         return None
 
 
+def mark_new_results(results: list[dict], old_results: list[dict] | None) -> None:
+    """跟上一版結果比對，新出現的文章標 new=True。沒有舊資料就不標（避免首輪全部標新）。"""
+    if not old_results:
+        return
+    old_urls = {r.get("url") for r in old_results}
+    for r in results:
+        if r.get("url") and r["url"] not in old_urls:
+            r["new"] = True
+
+
 def write_cache_if_track(job: dict) -> None:
-    """追蹤項的掃描完成後把結果寫進快取，開頁即看不用重掃。"""
+    """追蹤項的掃描完成後把結果寫進快取，開頁即看不用重掃；並跟上一版比對標「新」。"""
     with _jobs_lock:
         track_id = job.get("track_id") or ""
         if job["status"] != "done" or not track_id:
             return
+    if not _TRACK_ID_RE.match(track_id):
+        return
+    old = read_cache(track_id)
+    with _jobs_lock:
+        mark_new_results(job["results"], (old or {}).get("results"))
         payload = {
             "track_id": track_id,
             "updated_at": now_tw().strftime("%Y-%m-%d %H:%M"),
             "results": job["results"],
             "note": job["note"],
         }
-    if not _TRACK_ID_RE.match(track_id):
-        return
     tmp = None
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1066,39 +1083,7 @@ def auto_refresh_loop() -> None:
 # ---------------------------------------------------------------- 匯出
 
 
-def export_results_txt(name: str, results: list[dict], note: str = "") -> Path:
-    results = [r for r in results if isinstance(r, dict)]
-    if not results:
-        raise ValueError("結果格式不正確，沒有可匯出的項目")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = now_tw().strftime("%Y%m%d_%H%M")
-    out_file = OUTPUT_DIR / f"{safe_filename(name)}_{stamp}.txt"
-    chunks = [
-        f"PTT Assistant 匯出｜{name}",
-        f"整理時間：{now_tw():%Y-%m-%d %H:%M:%S}",
-        f"共 {len(results)} 篇",
-    ]
-    if note:
-        chunks.append(note)
-    chunks.extend(["=" * 72, ""])
-    for r in results:
-        meta_line = f"作者：{r.get('author', '')}｜日期：{r.get('date', '')}"
-        if r.get("board"):
-            meta_line += f"｜看板：{r['board']}"
-        if r.get("push"):
-            meta_line += f"｜推文：{r['push']}"
-        chunks.extend([
-            f"【{r.get('title', '')}】",
-            meta_line,
-            f"網址：{r.get('url', '')}",
-        ])
-        if r.get("matched"):
-            chunks.append(f"命中：{'、'.join(r['matched'])}")
-        if r.get("preview"):
-            chunks.extend(["", r["preview"]])
-        chunks.extend(["", "-" * 72, ""])
-    out_file.write_text("\n".join(chunks), encoding="utf-8-sig")
-    return out_file
+# （2026-08-22 移除舊的 export_results_txt／POST /api/export：UI 已改用 /api/download 批次下載全文）
 
 
 # ---------------------------------------------------------------- HTTP
@@ -1279,15 +1264,6 @@ class Handler(BaseHTTPRequestHandler):
                 "name": body.get("name") or "PTT文章合集",
             }
             self._json({"job_id": start_job(task)})
-        elif route == "/api/export":
-            results = body.get("results") or []
-            if not results:
-                self._json({"error": "沒有可匯出的結果"}, 400)
-                return
-            path = export_results_txt(
-                body.get("name") or "PTT掃描結果", results, body.get("note") or ""
-            )
-            self._json({"path": str(path)})
         elif route == "/api/tracks":
             action = body.get("action")
             tracks = load_tracks()

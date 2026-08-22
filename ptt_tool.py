@@ -539,6 +539,8 @@ def search_and_export_index(
 
 
 def run_natural_language(text: str, out_dir: Path, delay: float = 0.8) -> Path:
+    # ⚠️ v1 CLI 白話規則已凍結（2026-08-22）：不再新增規則，避免與 server.parse_request 雙套分岔。
+    # 新的白話理解一律進 server.py 的 parse_request；CLI 保持既有行為可用即可。
     client = PTTClient(delay=delay)
     board = parse_board(text)
     author = parse_author(text)
