@@ -15,6 +15,11 @@
     --accent-ink: #ffffff;
     --accent-soft: #e7f1ee;
     --warn: #b4552d;
+    /* 「新內容」語意色：獨立於 --warn(警告/錯誤)與 --accent(主要動作/正向)之外的第三色相(藍)，
+       避免「新」徽章被誤讀成警告或跟主導覽搶視覺權重；對比已核算：
+       --new on --new-soft ≈ 5.56:1（AA 一般文字需 4.5:1），--new-soft on 白卡片 ≈ 6.5:1（非文字元件需 3:1） */
+    --new: #2b5f9e;
+    --new-soft: #e7eef8;
     --chip: #eef1f4;
     --radius: 10px;
     --radius-sm: 8px;
@@ -225,8 +230,10 @@
     margin-top: var(--space-2); background: none; border: 0; color: var(--accent);
     cursor: pointer; font-size: .85rem; padding: 4px 2px;
   }
+  /* 沿用 .tab.active 的「淡底＋同色文字」次強調語言（而非 .viewbtn.active 那種實色高權重 pill），
+     跟標題文字保持視覺主從：badge 標記「新」，但不搶過 h3 本身 */
   .badge-new {
-    display: inline-block; background: var(--warn); color: #fff;
+    display: inline-block; background: var(--new-soft); color: var(--new);
     border-radius: var(--radius-pill); font-size: .72rem; font-weight: 600;
     padding: 1px 8px; margin-right: 6px; vertical-align: 2px;
   }
