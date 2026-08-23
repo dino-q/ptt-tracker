@@ -150,6 +150,7 @@
   </nav>
 
   <div id="note" class="note" style="display:none"></div>
+  <div class="tabs" id="board-filter" style="display:none"></div>
   <div class="tabs" id="cat-tabs" style="display:none"></div>
   <div id="head">
     <span id="count"></span>
@@ -195,6 +196,45 @@ function savePins() {
 }
 let PINS = loadPins();
 
+// 看板自選（moptt 式）：記「被隱藏的板」，預設全顯示
+function loadBoardExcl() {
+  try { return new Set(JSON.parse(localStorage.getItem("ptt_hot_board_excl") || "[]")); }
+  catch (e) { return new Set(); }
+}
+function saveBoardExcl() {
+  try { localStorage.setItem("ptt_hot_board_excl", JSON.stringify([...BOARD_EXCL])); } catch (e) {}
+}
+let BOARD_EXCL = loadBoardExcl();
+const boardShown = r => !r.board || !BOARD_EXCL.has(r.board);
+
+function renderBoardFilter(results) {
+  const box = $("board-filter");
+  box.innerHTML = "";
+  const counts = {};
+  for (const r of results) if (r.board) counts[r.board] = (counts[r.board] || 0) + 1;
+  const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  if (names.length < 2) { box.style.display = "none"; return; }
+  const label = document.createElement("span");
+  label.className = "sort-label";
+  label.textContent = "看板（點擊顯示/隱藏）";
+  box.appendChild(label);
+  for (const n of names) {
+    const b = document.createElement("button");
+    const shown = !BOARD_EXCL.has(n);
+    b.className = "tab" + (shown ? " active" : "");
+    b.textContent = `${n} ${counts[n]}`;
+    b.title = shown ? "點擊隱藏這個看板" : "點擊恢復顯示";
+    b.addEventListener("click", () => {
+      if (BOARD_EXCL.has(n)) BOARD_EXCL.delete(n); else BOARD_EXCL.add(n);
+      saveBoardExcl();
+      const d = DATA[VIEW];
+      if (d) { renderTabs(d); applyFilters(d); }
+    });
+    box.appendChild(b);
+  }
+  box.style.display = "flex";
+}
+
 function dayOk(r) {
   // 日曆日語意：「3天」＝今天含前兩天（以午夜為界）
   if (!DAYS || !r.ts) return true;
@@ -230,7 +270,9 @@ function renderTabs(d) {
     t.style.display = (VIEW === "hot" && parseInt(t.dataset.days, 10) > 3) ? "none" : "";
   });
   // 置頂項永遠顯示，計數也算進去
-  const base = d.results.filter(r => PINS.has(r.url) || dayOk(r));
+  const dayBase = d.results.filter(r => PINS.has(r.url) || dayOk(r));
+  renderBoardFilter(dayBase);  // 看板 chips 含被隱藏的板（要留著讓使用者點回來）
+  const base = dayBase.filter(r => PINS.has(r.url) || boardShown(r));
   const hasCats = base.some(r => (r.cats || []).length);
   if (!hasCats) { box.style.display = "none"; return; }
   // 分類頁籤由結果自身推導：已知標籤照既定順序，其餘（熱門的看板主題）依篇數排
@@ -262,7 +304,7 @@ function applyFilters(d) {
   const matchQ = r => !q || (r.title + " " + (r.author || "") + " " + (r.board || "")).toLowerCase().includes(q);
   // 置頂項不受天數/分類過濾影響永遠排最前；但文字搜尋要一起過
   const pinned = d.results.filter(r => PINS.has(r.url) && matchQ(r));
-  let list = dayFiltered(d.results).filter(r => !PINS.has(r.url));
+  let list = dayFiltered(d.results).filter(r => !PINS.has(r.url)).filter(boardShown);
   if (ACTIVE_CAT !== "全部") {
     list = ACTIVE_CAT === "其他"
       ? list.filter(r => !(r.cats || []).length)

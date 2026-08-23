@@ -709,17 +709,34 @@ def run_hot(task: dict, job: dict) -> None:
         search_pages = max(1, int(task.get("search_pages", 2)))
         today = now_tw()
 
+        nuser_map: dict[str, int] = {}
         if board:
             boards = [board]
             note = f"{board} 板熱門文章（推文數 ≥ {min_push}，爆=100）"
         else:
             job_log(job, "抓取 PTT 即時熱門看板排行")
-            hot = client.hotboards(top=int(task.get("hot_boards", 10)))
+            hot = client.hotboards(top=100)
             if not hot:
                 raise RuntimeError("抓不到熱門看板排行。")
-            boards = [b["board"] for b in hot]
-            job_log(job, f"人氣前 {len(boards)} 板：{'、'.join(boards)}")
-            note = f"全站人氣前 {len(boards)} 板，推文數 ≥ {min_push}"
+            nuser_map = {b["board"]: b["nuser"] for b in hot}
+            custom = [str(b).strip() for b in (task.get("boards") or []) if str(b).strip()]
+            if custom:
+                boards = custom
+                note = f"自選 {len(boards)} 板"
+            else:
+                boards = [b["board"] for b in hot[:int(task.get("hot_boards", 10))]]
+                note = f"全站人氣前 {len(boards)} 板"
+            job_log(job, f"看板：{'、'.join(boards)}")
+            note += f"，門檻依板人氣分級（大板 ≥{min_push} 推、中板減半、小板 1/3）"
+
+        def board_threshold(b: str) -> int:
+            """moptt 式的板級相對門檻：小板低門檻，才不會被大板洗掉。"""
+            n = nuser_map.get(b)
+            if board or n is None or n >= 1500:
+                return min_push
+            if n >= 400:
+                return max(10, min_push // 2)
+            return max(10, min_push // 3)
 
         # 候選收集：recommend 搜尋
         candidates: list[dict] = []
@@ -730,9 +747,10 @@ def run_hot(task: dict, job: dict) -> None:
                 raise InterruptedError
             with _jobs_lock:
                 job["progress"] = {"done": i, "total": len(boards)}
-            job_log(job, f"搜尋 {b} 推文數 ≥ {min_push} 的文章")
+            threshold = board_threshold(b)
+            job_log(job, f"搜尋 {b} 推文數 ≥ {threshold} 的文章")
             try:
-                items = client.search(b, f"recommend:{min_push}",
+                items = client.search(b, f"recommend:{threshold}",
                                       max_pages=search_pages, max_posts=60)
                 ok_boards += 1
             except Exception as exc:
@@ -742,7 +760,7 @@ def run_hot(task: dict, job: dict) -> None:
                 if it.url in seen:
                     continue
                 seen.add(it.url)
-                if push_score(it.push) < min_push:  # 不信任 PTT 一定有套用 recommend 條件
+                if push_score(it.push) < threshold:  # 不信任 PTT 一定有套用 recommend 條件
                     continue
                 dt = parse_list_date(it.date_text, today)
                 if days and dt and (today - dt).days > days:
@@ -769,8 +787,18 @@ def run_hot(task: dict, job: dict) -> None:
             rep = max(group, key=lambda c: c["score"])
             rep["thread"] = len(group)
             reps.append(rep)
-        reps.sort(key=lambda c: c["score"], reverse=True)
-        detail = reps[:max_detail]
+        # moptt 式公平入選：各板輪流取名額（板內依推文數排），小板不會被大板爆文擠光
+        by_board: dict[str, list[dict]] = {}
+        for c in reps:
+            by_board.setdefault(c["board"], []).append(c)
+        for lst in by_board.values():
+            lst.sort(key=lambda c: c["score"], reverse=True)
+        detail: list[dict] = []
+        queues = list(by_board.values())
+        while len(detail) < max_detail and any(queues):
+            for lst in queues:
+                if lst and len(detail) < max_detail:
+                    detail.append(lst.pop(0))
         job_log(job, f"候選 {len(candidates)} 篇／{len(reps)} 個討論串，讀取前 {len(detail)} 篇留言統計")
 
         results: list[dict] = []
