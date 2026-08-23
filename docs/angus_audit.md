@@ -572,3 +572,24 @@ blocker 0；⚠️ 4 項全屬 polish／文件層：**CODE_MAP:49 的 `export_re
 **V1 這個 blocker 確實修掉了**（ledger 與顯示上限分離、cutoff 一致、鏈路兩端都持久化、線上已生效），V2 也照處方到位。剩下兩件都是一行到一段的收尾：**⚠️V3 排序沒跟著改 → 噓爆文實測 0 篇進榜，盲區還在**（`abs()` 要用在 `reps.sort` 與 `rep = max` 上）；**⚠️V4 文案／天數頁籤與 200 上限的事實不符（5 天、10 天已經是 no-op）**，並且要向 Dino 說明「掉出 200 名會在 10 天內不再回鍋」這個新語意。這兩項都不阻擋現在的交付。
 
 環境交還：全程唯讀（1 次線上 JSON、讀本機快取檔），沒有對 PTT 發任何請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 暫存檔已刪。
+
+---
+
+# 熱門 v4 收尾確認 2026-08-23（Angus，範圍限 commit 0b86c1e）
+
+`git show 0b86c1e --stat`：只動 `server.py`／`scripts/build_site.py`／本報告；working tree clean、已推送。實測一次本機快取（182 篇）＋一次 `/api/cache`。
+
+- ✅ **V3 機制已完整開門（程式碼層確認）** — 兩處都改了：`rep = max(group, key=lambda c: abs(c["score"]))`、`reps.sort(key=lambda c: abs(c["score"]), reverse=True)`。X 噓爆文現在能與高推文競爭同一個 40 篇驗證額度，「噓爆原文被小推 Re: 搶代表位」也一併解掉。**對正推路徑零副作用**（abs 對正數是恆等，正推候選之間的相對順序不變）。本輪 X 文仍 0 篇我同意不必等自然樣本——收錄判準仍是實測留言數 ≥ 板級門檻，機制正確即可；backlog 消化完（每輪新收錄掉到十幾篇）之後若連幾天仍 0 篇，再回頭看板級門檻對噓文型態是否過高就好。
+- ✅ **V4 誠實化到位** — 實測：feed 182 篇（上限 400）、**帶摘要的索引正好是 0–119、120 之後 0 篇**（切齊）、`coverage 2.24 天` 與 note 文字「feed 目前涵蓋約 2.2 天（上限 400 篇／10 天）」一致、feed 嚴格依 accepted_at 遞減。ledger 拆檔正確：`hot.json` 的 payload 已不含 ledger、另寫 `hot_ledger.json`，`fetch_old("hot_ledger")` 有 fallback 到舊的內嵌格式（過渡輪不會掉登記簿）。**本機快取檔仍保留 ledger（182 筆）**所以登記簿沒斷，而 `/api/cache` 回應 keys 只有 `track_id/updated_at/results/note`（實測已剝除）→ 前端不再下載內部狀態。
+  附記（不必改）：`results[120:]` 的 `preview = ""` 會就地改到 registry 裡的同一批物件，所以掉出 120 名後摘要永久消失——但 feed 只會往下掉不會往上升，且本機版仍可點「顯示摘要」現抓、靜態站則直接不顯示按鈕，兩邊都優雅。
+- ✅ **V2 補強正確** — `job["fresh_urls"]`（鎖內設定）→ build_site `fresh = [r for r in stats if r["url"] in fresh_set]`。零新收錄的那一輪 `fresh` 為空 → `if fresh and …` 直接跳過，既不會誤觸也不會拿 carried 的舊統計假裝守門，語意乾淨。
+- ✅ **收斂曲線開始出現**：每輪新收錄 40 → 39 → 33 → **30**，單調下降，與我上輪預估的 backlog 消化路徑一致。ledger 182 筆、feed 182 篇（上限未咬到）。
+
+## VERDICT（收尾）
+
+`VERDICT: clean — safe to deliver`
+
+blocker 0、⚠️ 0。V1（登記簿與顯示上限分離）、V2（哨兵精準圈定本輪新收錄）、V3（abs 排序讓噓爆文進得了驗證池）、V4（上限 400／摘要瘦身／coverage 誠實揭露／ledger 拆檔）四項全部實測驗收通過，可以收案。
+唯一保留的觀察不是缺陷而是待觀察值：backlog 消化完之後的穩態收錄速率會決定 feed 實際涵蓋幾天（現在 2.2 天），note 已經會自己說實話，所以不需要再回審。
+
+環境交還：全程唯讀（讀本機快取檔、1 次 `/api/cache`），沒有對 PTT 發任何請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 我的暫存檔已刪。

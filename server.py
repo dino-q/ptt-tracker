@@ -759,17 +759,19 @@ def run_hot(task: dict, job: dict) -> None:
             job_log(job, f"看板：{'、'.join(boards)}")
 
         def comment_threshold(b: str) -> int:
-            """板級收錄門檻（總留言數）：與板活躍度成正比——moptt 板級門檻的精神。"""
+            """板級收錄門檻（總留言數）：與板活躍度成正比——moptt 板級門檻的精神。
+            2026-08-23 用 moptt 同板單實測校準：原 150/100/50/25 只有 moptt 一半密度
+            （政黑 4 vs 57/天、C_Chat 19 vs 65/天），全階調鬆 20% 對齊其量感。"""
             n = nuser_map.get(b)
             if n is None:
-                return 50
+                return 40
             if n >= 5000:
-                return 150
+                return 120
             if n >= 1500:
-                return 100
+                return 80
             if n >= 400:
-                return 50
-            return 25
+                return 40
+            return 20
 
         # 探索：recommend 搜尋當預過濾（recommend 搜全板歷史、不限最新頁 → 舊文回鍋自然發生）
         candidates: list[dict] = []
