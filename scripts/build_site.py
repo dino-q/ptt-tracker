@@ -37,7 +37,7 @@ def fetch_old(name: str) -> dict | None:
         return None
 
 
-def fill_previews(results: list[dict], old: dict | None, budget: int = 40) -> tuple[int, int]:
+def fill_previews(results: list[dict], old: dict | None, budget: int = 60) -> tuple[int, int]:
     """摘要差異式補齊：舊資料有的直接沿用，只對新文章實際爬（省請求）。"""
     old_prev = {r.get("url"): r.get("preview")
                 for r in (old or {}).get("results", []) if r.get("preview")}

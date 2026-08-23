@@ -36,6 +36,32 @@ def main() -> None:
         assert page.locator("#items .item").count() == n_all
         print(f"PASS 分類頁籤：全部 {n_all} -> 四大超商 {n_store} -> 還原")
 
+        # 2b) 天數篩選：預設 3 天，切 10 天筆數應增加、切 1 天應減少
+        expect(page.locator("#day-filter")).to_be_visible()
+        page.locator('#day-filter .tab[data-days="10"]').click()
+        n10 = page.locator("#items .item").count()
+        page.locator('#day-filter .tab[data-days="1"]').click()
+        n1 = page.locator("#items .item").count()
+        page.locator('#day-filter .tab[data-days="3"]').click()
+        assert n1 <= n_all <= n10 and n10 > n_all, f"天數視窗應單調（1天{n1} <= 3天{n_all} <= 10天{n10}）"
+        print(f"PASS 天數篩選：1天 {n1} / 3天 {n_all} / 10天 {n10}")
+
+        # 2c) 置頂：把第 2 篇置頂後應跳到第 1 位並帶「置頂」徽章；取消後還原
+        second_title = page.locator("#items .item h3 a").nth(1).inner_text()
+        page.locator("#items .item").nth(1).locator(".act", has_text="置頂").first.click()
+        expect(page.locator("#items .item").first.locator("h3 a")).to_have_text(second_title)
+        expect(page.locator("#items .item").first.locator(".badge-pin")).to_be_visible()
+        page.locator("#items .item").first.locator(".act", has_text="取消置頂").click()
+        expect(page.locator("#items .item").first.locator(".badge-pin")).to_have_count(0)
+        print(f"PASS 置頂：{second_title[:20]}… 置頂→跳首位→取消還原")
+
+        # 2d) 回到最上方：捲到底出現按鈕，點了回頂
+        page.mouse.wheel(0, 20000)
+        expect(page.locator("#to-top")).to_be_visible()
+        page.locator("#to-top").click()
+        page.wait_for_function("window.scrollY < 50")
+        print("PASS 回到最上方")
+
         # 3) 熱門文章頁：快取即看＋看板標示＋排序切換行為
         page.locator('.viewbtn[data-view="hot"]').click()
         expect(page.locator("#note")).to_contain_text("人氣前", timeout=10_000)

@@ -179,11 +179,14 @@ def default_tracks() -> list[dict]:
                 "intent": "scan",
                 "board": "Lifeismoney",
                 "queries": [],
-                "scan_latest_pages": 6,
+                # 爬取視窗固定抓近 10 天超集，「看幾天」由前端篩選（預設 3）——
+                # 否則舊文掃出視窗就消失（2026-08-23 Dino 實際踩到 8/19 全家文不見）
+                "scan_latest_pages": 14,
                 "search_pages": 3,
                 "must_groups": [],
                 "exclude": [],
-                "days": 3,
+                "days": 10,
+                "max_posts": 400,
                 "read_body": False,
                 "max_body_reads": 0,
             },
@@ -532,7 +535,8 @@ def run_task(task: dict, job: dict) -> None:
                 raise InterruptedError
             job_log(job, f"掃描 {board} 最新 {latest_pages} 頁列表")
             try:
-                for it in client.latest_board_posts(board, pages=latest_pages, max_posts=150):
+                for it in client.latest_board_posts(board, pages=latest_pages,
+                                                    max_posts=int(task.get("max_posts", 150))):
                     seen[it.url] = it
             except Exception as exc:
                 job_log(job, f"掃描列表失敗：{exc}")
@@ -608,6 +612,8 @@ def run_task(task: dict, job: dict) -> None:
                 "preview": preview,
                 "push": getattr(it, "push", ""),
                 "cats": classify(title),
+                # 真 epoch（帶台灣時區），前端天數篩選/最新排序都能安全用 Date.now() 比
+                "ts": dt.replace(tzinfo=TAIPEI).timestamp() if dt else None,
             })
 
         note = ""
@@ -805,9 +811,8 @@ def run_hot(task: dict, job: dict) -> None:
                 "boo": ps.get("噓", 0),
                 "per_hour": round(comments / age_h, 1) if age_h else None,
                 "rising": round(comments / ((age_h + 2) ** 1.6), 2) if age_h else 0.0,
-                # ts 只能拿來「排序」：naive 台灣時間取 timestamp，在 UTC 主機上
-                # 不是真 epoch（偏 8 小時）。前端絕不可拿它跟 Date.now() 算相對時間。
-                "ts": dt.timestamp() if dt else None,
+                # 真 epoch（帶台灣時區），前端可安全與 Date.now() 比較（天數篩選/相對時間）
+                "ts": dt.replace(tzinfo=TAIPEI).timestamp() if dt else None,
             })
 
         # H3 哨兵：時間解析大量失敗時排序等於壞掉，要出聲不能靜默
