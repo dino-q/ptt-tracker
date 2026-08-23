@@ -709,12 +709,16 @@ def run_hot(task: dict, job: dict) -> None:
         now = now_tw()
         now_epoch = now.replace(tzinfo=TAIPEI).timestamp()
 
-        # 收錄登記簿：上一版結果（線上：build_site 傳入；本機：track 快取）
+        # 收錄登記簿：ledger（url→accepted_at，含被顯示上限擠出者）＋上一版完整結果
+        # V1 修正：登記簿與 200 顯示上限分離，否則被擠出的舊收錄會被重複收錄、回鍋標新
         prev = task.get("prev_results")
+        prev_ledger = task.get("prev_ledger")
         if prev is None:
             with _jobs_lock:
                 tid = job.get("track_id") or ""
-            prev = ((read_cache(tid) or {}).get("results") if tid else None) or []
+            cached = (read_cache(tid) or {}) if tid else {}
+            prev = cached.get("results") or []
+            prev_ledger = cached.get("ledger")
         registry: dict[str, dict] = {}
         for r in prev:
             if isinstance(r, dict) and r.get("url"):
@@ -723,6 +727,15 @@ def run_hot(task: dict, job: dict) -> None:
                 # 舊格式沒有 accepted_at：用其 ts 當初始收錄時間，之後隨每輪自我修正
                 rr.setdefault("accepted_at", rr.get("ts") or now_epoch)
                 registry[rr["url"]] = rr
+        ledger: dict[str, float] = {}
+        if isinstance(prev_ledger, dict):
+            for u, a in prev_ledger.items():
+                try:
+                    ledger[str(u)] = float(a)
+                except (TypeError, ValueError):
+                    pass
+        for u, rr in registry.items():
+            ledger.setdefault(u, float(rr.get("accepted_at") or now_epoch))
 
         nuser_map: dict[str, int] = {}
         try:
@@ -777,11 +790,16 @@ def run_hot(task: dict, job: dict) -> None:
             except Exception as exc:
                 job_log(job, f"探索 {b} 失敗：{exc}")
                 continue
-            for it in items:
-                if it.url in seen or it.url in registry:
+            # V3：recommend 只認淨推，爆噓文（高留言低淨推）是盲區——補掃最新頁一併驗證
+            try:
+                extra = client.latest_board_posts(b, pages=1, max_posts=30)
+            except Exception:
+                extra = []
+            for it in list(items) + extra:
+                if it.url in seen or it.url in ledger:
                     continue  # 已收錄者統計凍結、不重抓（moptt 收錄後 feed 位置固定）
                 seen.add(it.url)
-                if push_score(it.push) < disc:
+                if abs(push_score(it.push)) < disc:  # 取絕對值：X 噓爆也值得進驗證池
                     continue
                 candidates.append({
                     "title": it.title, "author": it.author,
@@ -849,7 +867,7 @@ def run_hot(task: dict, job: dict) -> None:
         if accepted_new and dt_fail > len(accepted_new) / 2:
             job_log(job, f"警告：{dt_fail} 篇文章時間解析失敗")
 
-        # 舊收錄沿用（feed 保留 days 天，統計凍結）＋總量上限
+        # 舊收錄沿用（feed 保留 days 天，統計凍結）＋顯示上限（登記簿另存不受此限）
         scan_specific = bool(board) or bool(task.get("boards"))
         board_set = set(boards)
         cutoff = now_epoch - days * 86400
@@ -861,6 +879,13 @@ def run_hot(task: dict, job: dict) -> None:
         results = accepted_new + carried
         results.sort(key=lambda r: r.get("accepted_at") or 0, reverse=True)
         results = results[:200]
+
+        # 登記簿：補進本輪新收錄、修剪過期，存回 job 供快取/site JSON 持久化
+        for r in accepted_new:
+            ledger[r["url"]] = now_epoch
+        ledger = {u: a for u, a in ledger.items() if a >= cutoff}
+        with _jobs_lock:
+            job["ledger"] = ledger
 
         note += (f"，moptt 式收錄制（過板級留言門檻即收錄、依收錄時間排序、保留 {days} 天）；"
                  f"本輪新收錄 {len(accepted_new)} 篇、沿用 {len(carried)} 篇")
@@ -1036,6 +1061,8 @@ def write_cache_if_track(job: dict) -> None:
             "results": job["results"],
             "note": job["note"],
         }
+        if job.get("ledger"):
+            payload["ledger"] = job["ledger"]  # 熱門收錄登記簿（與顯示上限分離）
     tmp = None
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)

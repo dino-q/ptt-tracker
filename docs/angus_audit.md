@@ -476,3 +476,64 @@ blocker 0；⚠️ 4 項全屬 polish／文件層：**CODE_MAP:49 的 `export_re
 但**交付前請先決定 P1**（預設 3 天＝15 篇、8/19 那篇要按 5 天才看得到）——這批次的起因就是 Dino 覺得文章不見了，資料雖然救回來了，預設畫面卻不會讓他看到那篇；改預設 5 天或明確告知，二選一即可。其餘 P2（置頂不該免除文字搜尋）、P3（置頂使 tabs 與總數不一致）、P4（熱門頁 5／10 天無效果）都是一行級的 polish。
 
 環境交還：全程唯讀——2 次線上 JSON、1 次本機 `/api/meta`、其餘為離線算式驗證；沒有對 PTT 發任何請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 暫存檔已刪。
+
+---
+
+# 熱門 v4 審查 2026-08-23（Angus）
+
+範圍：`d91ed88`（7 檔 +238/-152，run_hot 全重寫）。working tree clean、`origin/master..HEAD` 為空＝已推送。
+方法：讀全文（不只 diff，v4 是重寫）＋ 用**本機 hot-now 快取 80 篇與線上已部署 hot.json 80 篇**做結構與分佈驗證 ＋ 用當下 hotboards 的 nuser 重算板級門檻逐篇核對 ＋ 追探索/收錄/沿用三段的資料流。全程唯讀（1 次 hotboards、2 次線上 JSON、0 次 PTT 文章請求）。
+
+## 資料層實測（先給體檢數字）
+
+- 本機快取（17:52）與線上（17:54）都是 80 篇、**80/80 有 accepted_at**、**feed 嚴格依 accepted_at 遞減**（逐項比對通過）、`ts == accepted_at` 80/80 ✓。
+- 分佈：40 篇是本輪新收錄（同一個 accepted_at），另 40 篇是舊快取 bootstrap（accepted_at＝原 ts，散落 11:31–16:50）。
+- **板級門檻逐篇核對：低於門檻者 0 篇**（新收錄 40/40 過線；bootstrap 沿用 40/40 也剛好都過線，因為它們原本就是 v3 的高留言前 40）→ 沒有 bootstrap 髒資料。
+- 留言數 min/中位/max ＝ 84／223／1469；per_hour 中位 12.2、max 545.5、>2000 者 0 → build_site 哨兵不會誤觸。
+- 板分佈 12 板（NBA 13／Gossiping 11／Baseball 11／…／Lifeismoney 2）→ 無每板限額，與 moptt 實證一致 ✓。
+- 線上 hot.json 體積 **123KB**（80 篇含摘要）——這是下面談 200 上限時的成本基準。
+
+## 你點名的 7 點
+
+1. **登記簿 × 200 上限 — 這裡有真問題，見 ❌V1。**
+2. **carried 不過濾板（全站掃描時）— 我認為是對的，不要改。** feed 的語意是「最近變熱的文章」，不是「現在還在熱門板上的文章」。若因為 Kaohsiung 今天掉出人氣前 10 就把昨天收錄的高雄文從 feed 抽掉，等於重演「文章莫名消失」那條抱怨；而且看板膠囊已經讓使用者能自己隱藏不想看的板。指定板／自選板掃描時才過濾（`scan_specific`）也合理，那是使用者明確要求的視野。
+3. **accepted_at 繼承鏈 — 兩條路格式一致、且不會被污染。** 線上：`build_site` 只把 `fetch_old("hot")` 的 results 灌進 `hot_task["prev_results"]`；本機：`read_cache(track_id)`，而 track_id 只在 UI 判定「全站＋預設條件」時才帶 `hot-now`。money／weekend 走的是 `run_task`，**根本不讀 prev_results**，`mark_new_results` 的 money 比對用的是 `fetch_old("money")` → 兩套資料互不相通 ✓。使用者自訂的 hot 追蹤項會用自己的 track_id 快取當登記簿，天然隔離 ✓。另外 `rr.pop("new", None)` 有把舊徽章清掉，不會讓「新」跨輪殘留 ✓。
+4. **舊格式 bootstrap — 正確。** `rr.setdefault("accepted_at", rr.get("ts") or now_epoch)`：2015 舊文若在舊快取裡，accepted_at 會是 2015 的 epoch → 被 `cutoff = now - 10 天` 直接排掉 ✓；ts 缺失才退成 now（fail-open，最多多留 10 天）。實測 bootstrap 的 40 篇 accepted_at 都落在今天，沒有異常值。
+5. **UI — 兩點都沒問題。** ① `SORT` 預設 `time` 對 money 無感：money 的項沒有 `rising` 欄位 → `sortable=false` → 排序控制項隱藏且完全不套排序，維持伺服器順序 ✓。② **bf-toggle 閉包沒有舊資料風險**：`renderBoardFilter(results)` 在每次 render 都會被重新呼叫（line 1018 `renderBoardFilter(dayBase)`），toggle 的 handler 是那一次 render 新建的閉包；點 toggle 只重畫膠囊列、用的正是當前畫面那份資料，資料更新後也會經由 render 重建 handler ✓。
+6. **探索只走 `recommend:`（正推）→ 高留言低推的爆噓文探索不到。我的嚴重度判斷：中高，建議這輪或下輪補。** `recommend:N` 只認淨推，所以「300 則留言、20 推、150 噓」這種文章永遠進不了候選，而它正是八卦／政黑最典型的熱門型態——也正是 moptt 用 hits（瀏覽量）會抓到、我們用留言數代理**應該**抓到的那一類。目前的 `push_score(it.push) < disc` 複驗也擋不住這個缺口（它們本來就沒出現在搜尋結果裡）。低成本補法：探索階段 union 一頁 `latest_board_posts(b, pages=1)`，把 nrec 是 `爆`／`XX` 或 `abs(push_score) >= disc` 的項也丟進驗證池（每輪多 10 次請求，約 +5 秒），收錄判準仍是實測總留言數，機制不變。
+7. **build_site 哨兵與 v4 相容性 — 不會誤觸，但守門力被架構削弱，見 ⚠️V2。**
+
+## ❌ V1（blocker 級設計缺陷）：200 上限與「收錄登記簿」共用同一份資料，凍結語意會被自己吃掉
+
+- 現狀：`registry` 只來自上一輪的 `results`，而 `results` 被 `[:200]` 截斷 → **被上限擠掉的舊收錄，下一輪就不在登記簿裡了**。而 `if it.url in registry: continue` 是唯一的「已收錄」判斷，所以那些文章會被重新探索、重新驗證、拿到**全新的 accepted_at**，跳回 feed 最前面，還會被 `mark_new_results` 標上「新」（它們不在上一版部署 JSON 裡）。
+- 為什麼會踩到（量化）：`max_detail=40` 是每輪上限，本輪就滿載 40 篇。探索面每輪約 10 板 × 2 頁 ≈ 400 篇候選，登記簿只有 200 個位子 → 穩態下永遠有大量「未登記但在搜尋結果裡」的文章可收。線上每小時跑一輪，只要每輪新收錄 20–40 篇，**登記簿 5–10 輪就滿，之後每輪擠掉最舊的 20–40 篇**：
+  - 快板（Gossiping／NBA）的舊文已滑出搜尋前 40 → 直接**從 feed 消失**，「保留 10 天」實際只剩 5–10 小時；
+  - 慢板（Kaohsiung／Lifeismoney／Elephants，實測都在 feed 裡）的文章仍在 `recommend:` 前 40 → **被重複收錄、重新蓋上今天的時間與「新」徽章**，同一篇每幾小時回鍋一次。
+- 這條同時打到 v4 的核心賣點（收錄後凍結、依收錄時間排序）與 Dino 最在意的那件事（文章不要莫名消失／不要莫名重複）。
+- 修法（不必動機制、只動持久化）：**把「登記簿」與「顯示上限」拆開**。快取／site JSON 多存一個精簡 ledger（例如 `{"ledger": {url: accepted_at}}`，10 天約 500–1000 筆、50–100KB 以內），`registry` 從 ledger 建、`results` 才套 200 上限；或直接把上限提高到「10 天預期量」（實測 80 篇＝123KB，200 篇約 300KB、gzip 後約 75KB，1000 篇就太重，所以我建議走 ledger）。
+- 驗證方式（不用等 10 天）：連續看 3–5 輪部署，(a) `carried` 是否卡在 ~160 而 `new` 一直維持 ~40；(b) 有沒有任何 url 的 accepted_at 往前跳。任一成立就是這條。
+
+## ⚠️ 其他
+
+- ⚠️ **V2 H3 哨兵被「凍結」架構削弱** — `scripts/build_site.py` 的哨兵是 `all((r.get("rising") or 0) == 0 for r in stats)`，但 v4 的 carried 會帶著上次算好的 rising（非 0）跨輪存活 → 只要 feed 裡有沿用項，**「rising 全 0」這個條件就永遠不成立**，等於時間解析壞掉時不會再讓 Action 紅燈（這正是 8/22 時區事故的唯一守門）。修法：哨兵只看本輪新收錄（`accepted_at == max(accepted_at)` 或另外回傳一個 `accepted_new` 計數／清單），對它們做「rising 全 0」與 per_hour 中位數檢查。run_hot 內的 `dt_fail > len(accepted_new)/2` 警告寫得對（分母已經是新收錄），把哨兵對齊成同一個口徑就好。
+- ⚠️ **V3 探索盲區（爆噓文）** — 見上第 6 點，嚴重度中高。
+- ⚠️ **V4 文案與實際不符** — note 與 UI 欄位都寫「保留 10 天 / feed 保留天數（依收錄時間）」，但在 V1 未修的情況下實際深度是數小時。修 V1 後文案自然成立；若決定不修 V1，文案要改成「最多 200 篇」。
+- 附記（不計入）：`hotboards(top=100)` 每輪多 1 次請求換來 nuser 分級，划算；`comment_threshold` 對不在熱門榜的板回落 50 是合理的保守值；指定板／自選板掃描不帶 track_id → 不會寫進 hot-now 快取、也不會污染登記簿（實測 UI 只在預設條件下傳 track_id）✓。
+
+## 已驗證乾淨
+
+- ✅ 探索→聚合→驗證→沿用四段的取消檢查、per-board `except → continue`、`ok_boards == 0 → raise` 都保留；`_thread_key` 仍帶板名（v2.2 的 H1 修法沒被重寫弄掉）。
+- ✅ 收錄判準是**實抓文章的總留言數**（不是搜尋結果的推文數），與 docs/moptt_algorithm.md 的結論一致；`recommend:` 只當預過濾且門檻用 `thr//3` 夾 10–50，方向（寧可多撈進驗證）正確。
+- ✅ 未過門檻的候選只是「本輪不收錄」，沒有寫進任何黑名單 → 之後留言變多會自然過線（持續觀測語意正確，不會誤殺）。
+- ✅ `ts = accepted_at` 與前端「天數篩選／最新熱門」語意一致（都是「何時變熱」）；`carried` 也統一 `r["ts"] = r["accepted_at"]`，不會出現兩種語意混在同一份 feed。
+- ✅ 天數篩選在 accepted_at 語意下自洽：DAYS=1＝今天被收錄的；熱門頁開放 1/3/5/10 現在是真的有效（不再是上輪那個 no-op，因為 feed 深度來自登記簿而非 days=2 的抓取視窗）。
+- ✅ 移除 `min_push` 參數與 UI 欄位後沒有殘留讀取點（run_hot 全文已無 min_push）。
+- ✅ 前端新增的膠囊／收折按鈕全部 `createElement` + `textContent`；`localStorage` 讀寫都有 try/catch（`ptt_board_filter_open`、`ptt_board_excl`、`ptt_pins`）。
+
+## VERDICT（熱門 v4）
+
+`VERDICT: 4 issues found — fix and re-audit`（blocker 1／nice-to-have 3）
+
+機制複製的忠實度與資料正確性我給高分：收錄制、板級門檻、feed 全序、無每板限額、統計凍結、舊文回鍋都對得上研究文件，實測 80 篇零違規。**但 ❌V1（登記簿與 200 顯示上限共用同一份資料）會在幾小時內把「收錄後凍結」這個核心語意吃掉**，症狀是快板文章提早消失、慢板文章反覆回鍋重標「新」——正好命中 Dino 最敏感的那兩件事，所以我把它列為 blocker：修法只是「多存一個 url→accepted_at 的 ledger」，不動演算法。順帶把 ⚠️V2（哨兵改看本輪新收錄）一起補，否則 8/22 那類時間事故的守門在 v4 之後其實已經失效。
+
+環境交還：全程唯讀（1 次 hotboards、2 次線上 JSON、本機快取檔讀取），沒有對 PTT 發文章請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 暫存檔已刪。
