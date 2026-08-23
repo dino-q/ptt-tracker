@@ -516,6 +516,8 @@ def article_package(art) -> dict:
 
 JOBS: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+# /api/article 是即時打 PTT 的端點，全域限流：同時最多 2 個請求在抓（R1）
+_article_sem = threading.Semaphore(2)
 
 
 def job_log(job: dict, msg: str) -> None:
@@ -1311,7 +1313,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "只接受 ptt.cc 文章網址"}, 400)
                 return
             try:
-                art = PTTClient(delay=0.2).article(url)
+                with _article_sem:
+                    art = PTTClient(delay=0.2).article(url)
                 self._json(article_package(art))
             except Exception as exc:
                 self._json({"error": str(exc)}, 502)

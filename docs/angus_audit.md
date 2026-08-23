@@ -593,3 +593,41 @@ blocker 0、⚠️ 0。V1（登記簿與顯示上限分離）、V2（哨兵精�
 唯一保留的觀察不是缺陷而是待觀察值：backlog 消化完之後的穩態收錄速率會決定 feed 實際涵蓋幾天（現在 2.2 天），note 已經會自己說實話，所以不需要再回審。
 
 環境交還：全程唯讀（讀本機快取檔、1 次 `/api/cache`），沒有對 PTT 發任何請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 我的暫存檔已刪。
+
+---
+
+# 閱讀器審查 2026-08-23（Angus，範圍限 commit 22420ad）
+
+6 檔 +322/-43；working tree clean、已推送。方法：讀全部 diff ＋ **用 node 跑 13 組對抗字串驗 URL 正則**（與瀏覽器同引擎語意）＋ article_id 邊界電池 ＋ 實抓 1 篇文章驗 payload 與 TXT 格式 ＋ 檢查 `site/data` 的 git 追蹤狀態。對 PTT 只發 1 次請求。
+
+## 你點名的 5 點
+
+1. **XSS 面 — 乾淨，我用對抗案例逐一驗過。** 正則 `/(https?:\/\/[^\s]+)/g` 的任何 match **必然以 `http://` 或 `https://` 開頭**（13 組案例全部成立）：`javascript:alert(1)`／`data:text/html,<script>…`／`vbscript:`／前置控制字元 `javascript:` **全部無 match**（原樣當文字節點輸出）；`httpsx://evil.com/a.jpg` 無 match。`http://a.com/x.jpg"onerror=alert(1)` 會 match 成 LINK，但值是用 `a.href = u` **屬性賦值**、整條路徑沒有任何 `innerHTML`（`container.textContent = ""` ＋ `createElement`）→ 引號不會被當 HTML 解析，**onerror 無法被注入** ✓。imgur 判斷 `/^https?:\/\/i\.imgur\.com\//i` 的點有轉義且要求結尾斜線，所以 `https://i.imgur.com.evil.com/a` 只會變成連結、不會變 `<img>` ✓。
+   兩則附帶觀察（都不是漏洞）：`xhttps://evil.com/a.jpg` 會抓到子字串 `https://evil.com/a.jpg` 並渲染成圖（子字串匹配的必然結果，後果僅是對圖床發一個 GET，已用 `referrerpolicy=no-referrer` 降低外洩）；`HTTPS://EVIL.com/a.png`（大寫 scheme）**不會**被連結化（正則沒有 `i` flag）——想支援就加 `i`，加了也不會有 XSS 風險（仍要求字面 scheme）。
+2. **article_id 碰撞／路徑安全 — 安全。** 主分支 `/bbs/(board)/(file).html` 的兩段都不可能含 `/`，所以 aid 永遠不含斜線或反斜線（電池測試 9 組全部確認）→ 檔名與前端 fetch 路徑都跳不出 `data/articles/`。唯一「起首是點」的情況是 `https://www.ptt.cc/bbs/../M.123.html → '.._M.123'`，但 (a) 結果清單的 url 一律是真實 PTT 文章連結、不會長這樣；(b) 就算真的出現，`.._M.123.json` 是**單一檔名**而非路徑段，URL 正規化的 dot-segment 移除只處理剛好等於 `.` 或 `..` 的段，所以不會往上跳 ✓。fallback 分支（`\W+ → _`）確有碰撞（`a?x=1`／`a?x-1`／`a?x_1`／`a#x=1` 全部 → `a_x_1`），但那個分支只有「不符 PTT 文章網址格式」才會走到，實務不可觸及；要保險就 `aid.lstrip(".")` 或加一道 `^[\w.-]{1,60}$` 白名單。
+3. **/api/article payload 與 PTT 量級 — 大小沒問題，但沒有節流，見 ⚠️R1。** 實測一篇 139 則留言的文章：body 6664 字＋139 則 → JSON **27KB**；以上限推算（body 12000＋300 則留言）最壞約 40–60KB，本機直連無所謂。
+4. **build 端補抓與 stale 檔 — 你的推理正確，我確認了關鍵前提。** `.gitignore:11` 有 `site/data/` → Actions 的 checkout **不含任何舊文章檔** → 每輪 artifact 只包含本輪 `write_articles` 實際寫出的清單 → **掉出維護窗的舊檔自然消失，不會累積** ✓（也因此 CDN 搬運 `fetch_old_article` 是唯一的跨輪保存手段，這個設計是自洽的）。覆蓋率數學也對：維護清單＝money 85 ＋ hot 最新 200 ≈ 285 篇，每輪 fresh ≈ 30–40（掃描時已抓，零額外請求）＋ 搬運（不耗 PTT）＋ 補抓 40 → 未覆蓋部分每輪 −40，本機目前 66 檔，約 5–6 輪後飽和、之後補抓自然歸零 ✓。carry_cap 320 > 285 所以不會卡住搬運。**但搬運的計數語意有個坑，見 ⚠️R2。**
+5. **批次下載 TXT 無迴歸 — 實測確認（我原本懷疑有）。** 我以為 `uid + content` 會吃掉 `": "` 分隔符，實抓驗證後是我看錯：`content` 變數保留原始的 `": …"`，`lstrip(": ")[:500]` 只作用在 `comment_list` 的 content 欄位。實際 TXT 行仍是 `推 warriors30: 所以是給兩個版本喔 有點玄 08/22 00:43`，**格式與 500 字截斷都與舊版一致**，`include_comments` 語意不變 ✓。
+
+## ⚠️ 兩則（皆非阻擋）
+
+- ⚠️ **R1 `/api/article` 沒有併發／速率保護** — 每個請求 `PTTClient(delay=0.2)` 都是新 client，而 `_get` 的 `time.sleep(delay)` 是**抓完之後**才睡，所以跨請求之間毫無節流；ThreadingHTTPServer 又是一請求一 thread → 使用者連點 10–20 篇「閱讀全文」就是 10–20 個幾乎同時對 PTT 的請求。UI 有 `pre.dataset.filled` 快取（同一篇不會重抓）✓，人手速度也有限，所以我列 nice-to-have；但這是整個功能唯一對 PTT 無上限的路徑，建議加一個全域 `threading.Semaphore(2)` 或共用 client＋lock，成本一行。
+- ⚠️ **R2 `write_articles` 的搬運計數只算成功、不算嘗試** — `if pkg is None and carried < carry_cap: pkg = fetch_old_article(aid); if pkg is not None: carried += 1`：CDN 回 404（該篇從未烘焙過）時 `carried` 不增加 → 守門條件恆為真 → **最壞情況每輪對 Pages 發出約 285 次 GET，每次 timeout 10 秒**。覆蓋率還沒長滿的現在（66/285）就有兩百多次 404 嘗試；若哪天 Pages 慢或掛掉，一次 build 會從 3 分鐘變成最多 ~47 分鐘（不會失敗、只會很久，Action 6 小時上限內不會被砍，所以不會有人發現）。修法：把計數改成「嘗試數」（`attempts += 1` 放在 `if pkg is None and attempts < cap` 之前）或把 timeout 從 10 秒降到 3–5 秒，兩者都是一行。
+
+## 已驗證乾淨（其他）
+
+- ✅ `comment_list` 與 `push_summary`、TXT 文字三者同一個 `.push` 迴圈收集，且都在 `decompose` 之前 → 零額外請求、也不會被簽名檔裁切影響（沿用上輪已驗證的順序）。
+- ✅ `Article.comment_list: Optional[list] = None` 有預設值 → 舊呼叫端與舊快取完全向下相容；`article_package` 對 `art.comment_list` 用 `or []` 防 None。
+- ✅ run_hot 在收錄驗證時把已抓的 `art` 存進 `job["articles"]`（鎖內設定），確實是零額外請求；build_site 再 `fresh_articles.update(hot.get("articles") or {})` 併入 → 資料流沒有重複抓取。
+- ✅ 閱讀器渲染全程 `createElement`／`textContent`（留言的 tag／user／content／time、樓層 `1F` 起算、推噓配色都是 class 切換），沒有任何 `innerHTML` 吃資料。
+- ✅ 讀取失敗有優雅退路：本機版 `catch` 會顯示「摘要＋全文讀取失敗：原因」；線上版無烘焙檔（404）退回摘要＋原文連結 → 不會出現空白展開區。
+- ✅ `fetch_old_article` 有 `isinstance(d, dict)` 檢查（Pages 回非 JSON／HTML 時回 None，不會炸整輪）。
+- ✅ `write_articles` 有 `seen` 去重（money 與 hot 清單若有同一篇不會寫兩次）、`aid` 為空直接跳過。
+
+## VERDICT（閱讀器）
+
+`VERDICT: clean (blockers) — safe to deliver`
+
+blocker 0。最需要確認的 XSS 面我用對抗字串逐一驗過：**任何被渲染成 `img.src`／`a.href` 的字串必然以 http(s):// 開頭，且全程屬性賦值無 innerHTML → 無注入面**；`article_id` 跳不出目錄；TXT 路徑實測無迴歸；stale 文章檔會因 `site/data/` 被 gitignore 而自然清除（你的推理正確）。兩則 ⚠️ 都是「還沒爆但會爆」型的收尾：R1（連點多篇沒有節流）與 R2（CDN 搬運只算成功次數，Pages 出問題時 build 會拖到 40 分鐘級），各一行可修，不阻擋交付。
+
+環境交還：對 PTT 只發 1 次請求（驗 payload 與 TXT 格式），其餘為離線正則／id 電池與本機檔案讀取；沒有起 process、沒有寫入 `data/`／`output/`／`site/`；scratchpad 我的暫存檔已刪。

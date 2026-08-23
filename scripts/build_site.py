@@ -70,7 +70,7 @@ def fill_previews(results: list[dict], old: dict | None, articles: dict,
 
 def fetch_old_article(aid: str) -> dict | None:
     try:
-        with urllib.request.urlopen(f"{LIVE_BASE}/articles/{aid}.json", timeout=10) as r:
+        with urllib.request.urlopen(f"{LIVE_BASE}/articles/{aid}.json", timeout=4) as r:
             d = json.loads(r.read().decode())
         return d if isinstance(d, dict) else None
     except Exception:
@@ -93,9 +93,8 @@ def write_articles(out_dir: Path, items: list[dict], fresh: dict,
         seen.add(aid)
         pkg = fresh.get(aid)
         if pkg is None and carried < carry_cap:
+            carried += 1  # R2：計「嘗試數」不是成功數——CDN 大量 404/變慢時 build 不會拖到天荒地老
             pkg = fetch_old_article(aid)
-            if pkg is not None:
-                carried += 1
         if pkg is None and fetched < fetch_budget:
             try:
                 if client is None:

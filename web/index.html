@@ -290,6 +290,8 @@
     background: var(--color-surface-2); border-left: 3px solid var(--color-accent);
     font-size: .88rem; white-space: pre-wrap; word-break: break-word;
     max-height: 72vh; overflow-y: auto;
+    /* 內捲到頂/底時不把捲動動能繼續帶給外層頁面（雙捲軸互相搶滾感的主因） */
+    overscroll-behavior: contain;
   }
   .item.open .preview { display: block; }
   .item .toggle {
@@ -299,13 +301,18 @@
   /* 全文閱讀器 */
   .art-body { font-size: .9rem; line-height: 1.7; }
   .art-body .art-line:empty::after { content: "\00a0"; }
-  .art-img { display: block; max-width: 100%; border-radius: var(--radius-sm); margin: var(--space-2) 0; }
+  /* 圖片是內文中最重的元素，留白比文字行距更寬一階（space-3）才不會貼著鄰行文字；
+     細框線把外站圖床貼圖收進同一套卡片語彙，避免圖片各種底色在頁面上顯得突兀 */
+  .art-img {
+    display: block; max-width: 100%; border-radius: var(--radius-sm); margin: var(--space-3) 0;
+    border: 1px solid var(--color-line);
+  }
   .art-comments-head {
     margin-top: var(--space-4); padding-top: var(--space-3);
     border-top: 1px solid var(--color-line); font-weight: 600; font-size: .88rem;
   }
   .cmt {
-    display: flex; gap: 6px; font-size: .85rem; padding: 3px 0;
+    display: flex; gap: var(--space-2); font-size: .85rem; padding: var(--space-1) 0;
     border-bottom: 1px dashed var(--color-line); align-items: baseline; flex-wrap: wrap;
   }
   .cmt-floor { font-family: var(--font-mono); color: var(--color-ink-2); font-size: .75rem; min-width: 36px; }
@@ -366,6 +373,13 @@
     .export-actions {
       margin-left: 0; padding-left: 0; border-left: 0; flex-basis: 100%;
       justify-content: space-between; padding-top: var(--space-2); border-top: 1px solid var(--color-line);
+    }
+    /* 留言列窄螢幕重排：樓層/標籤/作者/時間留在同一條「標頭列」（時間靠右對齊收尾），
+       內文另起一整行、用 hanging indent 對齊作者欄，取代「時間被擠成孤立第三行」的原生 flex-wrap 結果 */
+    .cmt-time { order: 1; margin-left: auto; }
+    .cmt-content {
+      order: 2; flex: 1 1 100%; box-sizing: border-box;
+      padding-left: calc(36px + var(--space-2)); margin-top: 2px;
     }
   }
 </style>
@@ -1222,6 +1236,9 @@ function renderLine(parent, line) {
 
 function fillArticle(container, art) {
   container.textContent = "";
+  container.setAttribute("tabindex", "0");  // 內捲區鍵盤可聚焦捲動（Tor a11y 遺留項）
+  container.setAttribute("role", "region");
+  container.setAttribute("aria-label", "文章全文與留言");
   const body = document.createElement("div");
   body.className = "art-body";
   for (const line of (art.body || "").split("\n")) renderLine(body, line);

@@ -261,4 +261,43 @@
 ### 後續建議
 - 給 Bevis：本輪為視覺/資訊架構重排，未變更任何功能或掃描邏輯，若後續要新增第 5 個功能頁，設計上已預留骨架（`.views` 頁籤 + `.results-toolbar` 面板可直接沿用），建議新功能上線前提醒我一併檢查是否要沿用同一套結果工具列。
 - 給 Ray：建議針對 `site/index.html` 補一次「用 http server（不是 file://）開啟」的 regression，確認 `fetch("data/money.json")` 在真實部署路徑下正常，本輪只用 `file://` 快速視覺檢查、已知這個限制不是本輪改動造成。
+
+---
+
+## 全文閱讀器增量審查（2026-08-23：長文＋百則留言在卡片內捲動的體驗）
+
+### 任務意圖判定
+- 屬於 ④ 審查（增量）：hallmark 整頁重設計已鎖定 `design.md` 的系統，這次只審「新加入的全文閱讀器」（`.preview` 內捲容器：`.art-body`/`.art-line`/`.art-img`/`.art-comments-head`/`.cmt` 留言列）有沒有融入既有系統，不重新挑色/挑字/開新版面。
+- 硬性先載入 `ui-ux-pro-max`（容器內正版，未用代替方案），對照其 Quick Reference 逐項核對：Priority 5（Layout & Responsive）`scroll-behavior`/`horizontal-scroll`、Priority 6（Typography & Color）`line-height`/`line-length`、Priority 2（Touch）`touch-spacing`。
+- 用 Playwright 實機開 `http://127.0.0.1:8877`（熱門頁，真實案例：留言 139、每小時 3.3 那則），量測 DOM 尺寸與截圖，不是憑印象猜；另外用 `python -m http.server` 起了 `site/` 的臨時伺服器，找到另一則留言 124 的案例交叉核對兩檔一致。
+
+### 整體協調性檢視
+- 退一步看整張畫面：全文閱讀器是**既有 `.preview` 內捲容器裡新長出來的內容**（原本只有純文字 `pre.textContent`），沒有新開版面、沒有新增按鍵入口——`.toggle`「閱讀全文」按鈕與 `.item-actions` 動作列都是原本就有的，這次只審內容本身的排版。沒有需要跟主 Claude 討論的結構整合建議。
+- 樓層欄對齊：實測量了 1F／9F／139F 三種位數，`.cmt-floor{min-width:36px}` 已經讓後面的 tag 欄一律從同一個 x 座標起排（36px 固定框，位數不同不影響），**這部分原本就做對，不需要改**——這是先量測再動手才發現「以為有問題、其實沒問題」的案例，避免了不必要的改動。
+- 真正需要收斂的是兩處「新元素沒接上既有 4px 間距刻度」的地方：`.cmt` 用了 `gap:6px`／`padding:3px 0`（6、3 都不在 `--space-1..9` 的 4px 刻度上），`.art-img` 的 `margin:var(--space-2)` 對一張整段寬度的貼圖來說太窄、且完全沒有框線把外站圖床的雜色圖片收進卡片語彙——這兩處判定為「順手收斂進既有系統」，不是新增裝飾。
+- 手機 375px 是本輪發現的真正体验缺口：目前的 flex-wrap 會把「時間」欄擠成留言區塊的孤立第三行（樓層/標籤/作者一行、內文一行、時間又自己一行），跟內文脫節。用既有的 `@media (max-width: 26.25rem)`（`web/index.html` 本來就有這個斷點，`site/index.html` 之前沒有、這次補上同一個值，維持兩檔斷點值統一不漂移）搭配 CSS `order` 把時間挪到「樓層/標籤/作者」那一行、靠右對齊收尾，內文改成獨立整行、用 hanging indent 對齊作者欄——**只動 CSS `order`／`margin`／`padding`，DOM 順序、`createElement`/`textContent` 邏輯完全沒有動**。
+
+### 設計決策
+1. **`.cmt` 間距併回 4px 刻度**：`gap:6px→var(--space-2)`、`padding:3px 0→var(--space-1) 0`。理由：Layout & Responsive 的 `spacing-scale` 準則要求 4/8px 遞增系統；139 列乘上來的高度差可忽略（多約 140px 內容，於 72vh 內捲容器裡不影響可視密度）。
+2. **`.art-img` 留白升一階＋補框線**：`margin:var(--space-2)→var(--space-3)`，並加 `border:1px solid var(--color-line)`。理由：圖片是內文中最重的元素（面積遠大於一行文字），留白理應比文字行距寬一階才不會貼著鄰行文字（Typography & Color `whitespace-balance`）；外站圖床貼圖（本例是白底表格截圖）原本直接漂在 `--color-surface-2` 背景上邊界模糊，加一條細框線把它收進跟 `.item` 卡片同一套「有邊界的容器」語彙，不是新發明的視覺語言。
+3. **`.preview` 加 `overscroll-behavior: contain`**：直接回應題目點名的「72vh 內捲與頁面捲動的雙捲軸感受」。用 Playwright 實測驗證：把內捲容器滑到最底後持續在原地滾動 10 次，`window.scrollY` 前後完全不變（858→858）——確認滾動動能不會從內捲容器「溢出」帶動外層頁面，這正是雙捲軸最惱人的症狀（滑到底卻不知不覺把整頁往下拖）。這行 CSS 不改變任何版面，是純行為修正。
+4. **手機（≤26.25rem）留言列重排，只用 flex `order`，不碰 DOM**：`.cmt-time{order:1; margin-left:auto}`、`.cmt-content{order:2; flex:1 1 100%; box-sizing:border-box; padding-left:calc(36px + var(--space-2))}`。效果：樓層/標籤/作者/時間留在同一條「標頭列」（時間靠右對齊收尾，呼應桌面版「內文後面接時間」的資訊順位，只是窄螢幕改成標頭尾端），內文另起一整行、用 44px（36px 樓層寬 + 一格間距）hanging indent 對齊作者欄，取代原本「內文、時間各自孤立成一行」的預設 flex-wrap 結果。`site/index.html` 原本沒有 26.25rem 斷點，這次新增時特別沿用 `web/index.html` 已經在用的同一個數值（不是另訂一個新斷點），避免兩檔漂移。
+5. **克制**：沒有加 scroll fade／漸層陰影去暗示「還有更多內容可捲」——技術上可行（多重 background-image 的 scroll-shadow 手法），但需要精準抓 `--color-surface-2` 色值疊層，出錯風險（露出接縫或色差）大於帶來的效益，且 design.md 沒有這個視覺語彙，判定為「為了炫技加裝飾」而捨棄；沒有改用 CSS Grid 重寫 `.cmt` 版面（原本 flex + order 就能達到效果，沒必要換一套佈局技術製造新的維護成本）；沒有加 zebra 條紋背景（既有 dashed border-bottom 已經足夠分隔 139 列，加背景色會是視覺上多一層裝飾）。
+
+### 產物位置
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`——`.preview`／`.art-img`／`.cmt` 三處 CSS 規則微調；`@media (max-width: 26.25rem)` 既有區塊內新增 `.cmt-time`／`.cmt-content` 兩條規則。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html`——同一組 CSS 改法；另新增 `@media (max-width: 26.25rem)` 區塊（原本沒有），只放這次的 `.cmt-time`/`.cmt-content` 兩條規則。
+- 兩檔的 `<script>` 區塊、`id`、JS 用到的 class（`preview`/`toggle`/`open`/`art-body`/`art-line`/`art-img`/`art-comments-head`/`cmt`/`cmt-floor`/`cmt-tag`/`push`/`boo`/`arrow`/`cmt-user`/`cmt-content`/`cmt-time`）與 `createElement`/`textContent` 渲染邏輯**逐行核對後完全未動**。
+- 執行方式：`web/index.html` 照舊跑 `server.py`（`http://127.0.0.1:8877`）；`site/index.html` 建議用 http server 開（`file://` 會因 `fetch()` 同源限制載入失敗，跟本輪改動無關，屬既有已知限制）。
+
+### 自審結果（④ 心法）
+- a11y：本輪未動任何色值，`.cmt-tag.push`/`.boo`/`.arrow` 沿用既有色彩系統（沒有只靠顏色傳達推/噓/→，本來就有文字本身「推」「噓」「→」作為第二訊號，符合 `color-not-only`）；`.preview` 目前仍無 `tabindex`，鍵盤使用者無法用方向鍵單獨捲動這個內捲區（只能用 Tab 走到裡面的連結/圖片再用瀏覽器內建捲動），這屬於要動 JS 屬性的範圍，本輪依指示只改 CSS，**留給後續**（見下方建議）。
+- 狀態完整度：留言列本身無互動狀態（純顯示），不適用 hover/focus 檢核；`.art-line` 裡的連結沿用全域 `a` 的 hover/focus 樣式，未動。
+- RWD：Playwright 實測 375px 寬度，`document.documentElement.scrollWidth` 恆為 375（無橫向溢出）；用真實留言（含「IP+時間」這種異常長的 time 內容，`site/` 熱門頁一則留言 124 的案例）壓力測試——這種案例下標頭列（樓層/標籤/作者/時間）會因塞不下而自行再折成兩行，但不會溢出版面、不會截斷文字，屬於可接受的邊界退化，比改動前「每一列都固定三行」是進步而非退步。
+- 對比：`.cmt-floor`/`.cmt-time` 用既有 `--color-ink-2` 對 `--color-surface-2` 背景，色值本輪未變動，沿用先前已核算過的 OKLCH 明度差。
+
+### 後續建議
+- 給 Zavier：若之後要補鍵盤可捲動性（`.preview` 加 `tabindex="0"` 讓鍵盤使用者能直接方向鍵捲動內捲區），需要動 JS（`pre.className = "preview"` 那行旁補一個屬性設定），這超出本輪「只改 CSS」的授權範圍，麻煩之後排時間補上。
+- 給 Ray：建議做一次瀏覽器 regression，重點測「閱讀全文」展開/收合、內捲區域捲動（含滑到底部再滾動確認不會拖動外層頁面）、375px 下留言列不因這次的 `order` 改動而看起來斷裂或跳位——本輪只動 CSS，理論上不影響任何 click/fetch 邏輯，但建議實測收斂風險。
+- 給 Andy：請記錄「樓層欄其實本來就對齊、不需要動」與「間距沒接上 4px 刻度、雙捲軸靠 `overscroll-behavior:contain` 而非改版面結構」這兩個判斷過程，日後若再有人覺得留言列「看起來很擠」，先量測（如本輪用 Playwright 抓 boundingClientRect）再決定要不要動,不要憑印象重排。
 - 給 Andy：請記錄本輪「從六輪局部修補轉為 hallmark 整頁重設計」的判斷分水嶺（累積的零散 token 已無法靠局部修補達成協調，需要重鑄系統）、以及 `design.md` 這個新的單一事實來源上線，之後任何人改這兩份頁面的視覺，優先讀 `design.md` 而非直接讀 CSS 猜規則。
