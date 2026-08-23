@@ -537,3 +537,38 @@ blocker 0；⚠️ 4 項全屬 polish／文件層：**CODE_MAP:49 的 `export_re
 機制複製的忠實度與資料正確性我給高分：收錄制、板級門檻、feed 全序、無每板限額、統計凍結、舊文回鍋都對得上研究文件，實測 80 篇零違規。**但 ❌V1（登記簿與 200 顯示上限共用同一份資料）會在幾小時內把「收錄後凍結」這個核心語意吃掉**，症狀是快板文章提早消失、慢板文章反覆回鍋重標「新」——正好命中 Dino 最敏感的那兩件事，所以我把它列為 blocker：修法只是「多存一個 url→accepted_at 的 ledger」，不動演算法。順帶把 ⚠️V2（哨兵改看本輪新收錄）一起補，否則 8/22 那類時間事故的守門在 v4 之後其實已經失效。
 
 環境交還：全程唯讀（1 次 hotboards、2 次線上 JSON、本機快取檔讀取），沒有對 PTT 發文章請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 暫存檔已刪。
+
+---
+
+# 熱門 v4 修正確認 2026-08-23（Angus，範圍限 commit 2dad28a）
+
+`git show 2dad28a --stat`：只動 `server.py`／`scripts/build_site.py`／本報告，無夾帶。方法：讀 diff ＋ 用**本機 152 篇快取與線上已部署 120 篇**驗證 ledger／收錄分組／噓文覆蓋率／天數篩選實際效果。全程唯讀（1 次線上 JSON、讀本機快取）。
+
+## 逐項驗收
+
+- ✅ **V1（blocker）真的修好了** — ledger 獨立持久化鏈完整：run_hot 讀 `task["prev_ledger"]` 或快取的 `ledger` 欄位 → 探索 skip 改查 `it.url in ledger` → 本輪新收錄併入 → **與 carried 用同一個 `cutoff` 修剪** → 存回 `job["ledger"]`（鎖內）→ `write_cache_if_track` 與 build_site 的 hot.json 都帶出去。你問的第①點：**cutoff 一致、不會誤刪 carried 需要的鍵**——`carried` 的條件是 `accepted_at >= cutoff`、ledger 修剪條件是 `a >= cutoff`，同一個述詞，不可能出現「carried 還在但 ledger 已刪」；`registry` 也用 `setdefault` 回填 ledger，舊快取沒有 ledger 欄位時能自我 bootstrap。**不會無限成長**（每輪修剪，上限＝10 天內的收錄數）。實測：本機 feed 152／ledger 152 筆、`ledger 早於 feed 最舊者 = 0`（顯示上限還沒咬到）、線上 120／120 且 `ledger` 欄位已部署 ✓。accepted_at 零漂移我也從分組看到了（見下）。
+- ✅ **V2 哨兵對齊** — `fresh = [r for r in stats if r.get("accepted_at") == acc_max]`，正是處方。小提醒（不必改）：某輪**新收錄為 0** 時，`acc_max` 會落在最新一批 carried 上 → 哨兵那輪實際在檢查凍結的舊統計，等於沒有守門；要做到滴水不漏就讓 run_hot 另外回傳 `accepted_new` 的計數／清單給哨兵用。
+- ⚠️ **V3 只修了一半，實測沒有生效** — 候選閘門改成 `abs(push_score) >= disc` 且 union 了 `latest_board_posts` 一頁 ✓，但**排序沒改**：`reps.sort(key=lambda c: c["score"], reverse=True)` 之後 `probe = reps[:max_detail]`（40）。X 噓爆文的 `score` 是負值（X1→−10、XX→−100），會排在**所有正推候選之後**，在 40 篇的驗證預算下永遠進不了 probe。實測佐證：本機 152 篇與線上 120 篇裡，**`push` 以 X 開頭者都是 0 篇**，而 `爆` 有 54／55 篇——盲區還在原地。修法兩行：`rep = max(group, key=lambda c: abs(c["score"]))` 與 `reps.sort(key=lambda c: abs(c["score"]), reverse=True)`（順帶也修掉「噓爆原文被小推 Re: 搶走代表位」的老問題）。你問的第②點順便回答：**abs() 對 recommend 結果（全正推）確實無副作用**（`push_score("")=0` 仍會被擋掉），它只是讓補掃的噓文「進得了候選池」，但目前進不了驗證池。
+- ⚠️ **V4 文案在 V1 修好後仍然不是事實** — 200 顯示上限現在會先咬到，而且**已經開始咬**：目前 feed 跨度 53.7 小時就有 152 篇，前端天數篩選在這份資料上的效果是 `DAYS=1/3/5/10 → 129/152/152/152`，也就是**「5 天」「10 天」兩個頁籤已經是 no-op**。收錄速率實測 40 → 39 → 33 篇／輪，即使收斂到每輪 10–20 篇，10 天也遠超 200 篇 → feed 實際只會是「最近 200 篇被收錄的文章」（線上每小時一輪約 6–10 小時、本機 6 小時一輪約 1.5 天）。建議二選一：把 note／`f-h-days` 標籤改成「最近 200 篇熱門收錄」並讓熱門頁只留 1／3 天；或把顯示上限拉大（成本參考：本機 152 篇＝246KB、線上 120 篇＝194KB，摘要佔絕大部分——想拉大上限又不想變重，可以只給最新 80 篇留 preview）。
+  附帶一件必須講清楚的語意：ledger 現在會阻止「被上限擠出者」重新收錄（這正是 V1 要的），所以**掉出 200 名的文章會在 10 天內永久消失、不再回鍋**。這是比「反覆回鍋標新」更好的取捨，但它仍然是一種「文章會不見」——Dino 對這件事敏感，交付時最好一句話講明「熱門頁是最近 200 篇收錄，往前找請用日期或去省錢頁」。
+
+## 你問的第③點：39→33 算不算收斂曲線
+
+**還不能算，這兩輪相隔只有 36 秒。** 精確分組顯示 `18:03:07 → 39 篇`、`18:03:43 → 33 篇`（加上 `17:52:00 → 40 篇` 那輪 bootstrap），是同一批 backlog 被連續兩次消化，−15% 只說明「池子還很深」。可估的池子大小：每板 recommend 2 頁（≈40）＋補掃 1 頁（≤30）≈70 筆 × 12 板 ≈ 840 個 URL，而每輪驗證上限 40 篇 → 還要十幾輪才會摸到底。我的預期曲線是：**接下來數輪維持 30–40／輪，等 ledger 覆蓋到搜尋可見窗（估 400–800 筆）之後才會掉到「真正新變熱」的速率（線上可能每輪個位數到十幾篇）**。判斷收斂的訊號建議看兩個：ledger 筆數是否趨平、以及每輪新收錄是否掉到 15 以下；在那之前 feed 都會被 200 上限截斷（見 ⚠️V4）。
+
+## 已驗證乾淨（本次改動面）
+
+- ✅ ledger 型別防禦：`prev_ledger` 非 dict 直接忽略、逐筆 `float()` 包 try/except（壞資料不會炸整輪）。
+- ✅ `job["ledger"]` 在鎖內設定；`write_cache_if_track` 用 `if job.get("ledger")` 才寫入 → money／weekend（run_task，不產生 ledger）完全不受影響，不會塞空欄位。
+- ✅ build_site 兩件事都對：`hot_task["prev_ledger"] = (old_hot or {}).get("ledger")`（首次部署沒有 ledger 時為 None → 走 registry bootstrap）、輸出 `"ledger": hot.get("ledger") or {}`；線上已實際部署（120 筆）✓。
+- ✅ 補掃的 `latest_board_posts(b, pages=1, max_posts=30)` 包在自己的 try/except 裡，抓失敗只是 `extra=[]`，不會讓整個板的探索失敗；成本＝每輪多 12 次請求（與我上輪估的 +10 一致）。
+- ✅ 收錄判準仍是「實抓文章總留言數 ≥ 板級門檻」，V3 的閘門只影響誰進驗證池，不影響收錄標準 ✓。
+- 附記：ledger 目前 11KB，但它只有 build_site 需要，卻跟著 hot.json 送給每個訪客；等 ledger 長到 800–1300 筆會是 60–95KB 的純浪費。建議之後拆成 `data/hot_ledger.json`（頁面不抓、只有 builder 讀），一併緩解 ⚠️V4 的體積壓力。
+
+## VERDICT（v4 修正確認）
+
+`VERDICT: 2 issues found — fix and re-audit`（blocker 0／nice-to-have 2）
+
+**V1 這個 blocker 確實修掉了**（ledger 與顯示上限分離、cutoff 一致、鏈路兩端都持久化、線上已生效），V2 也照處方到位。剩下兩件都是一行到一段的收尾：**⚠️V3 排序沒跟著改 → 噓爆文實測 0 篇進榜，盲區還在**（`abs()` 要用在 `reps.sort` 與 `rep = max` 上）；**⚠️V4 文案／天數頁籤與 200 上限的事實不符（5 天、10 天已經是 no-op）**，並且要向 Dino 說明「掉出 200 名會在 10 天內不再回鍋」這個新語意。這兩項都不阻擋現在的交付。
+
+環境交還：全程唯讀（1 次線上 JSON、讀本機快取檔），沒有對 PTT 發任何請求、沒有起 process、沒有寫入 `data/`／`output/`；scratchpad 暫存檔已刪。

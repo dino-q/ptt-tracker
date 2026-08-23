@@ -97,17 +97,18 @@ def main() -> None:
 
     old_hot = fetch_old("hot")
     hot_task = dict(tracks["hot-now"]["task"])
-    # moptt 式收錄登記簿：上一版結果＋ledger 一起傳入，收錄時間才能跨輪持久
+    # moptt 式收錄登記簿：上一版結果＋獨立 ledger 檔一起傳入，收錄時間才能跨輪持久
     hot_task["prev_results"] = (old_hot or {}).get("results") or []
-    hot_task["prev_ledger"] = (old_hot or {}).get("ledger")
+    hot_task["prev_ledger"] = ((fetch_old("hot_ledger") or {}).get("ledger")
+                               or (old_hot or {}).get("ledger"))  # 相容舊格式（曾內嵌於 hot.json）
     hot = run(run_hot, hot_task)
     mark_new_results(hot["results"], (old_hot or {}).get("results"))
-    # 哨兵只看「本輪新收錄」：carried 帶著舊統計會讓全域檢查永遠不觸發（V2 修正）
+    # 哨兵只看「本輪新收錄」（fresh_urls）：carried 舊統計不可讓守門失效（V2 修正）
     stats = [r for r in hot["results"] if r.get("comments") is not None]
     if hot["results"] and not stats:
         raise SystemExit("全部文章都沒取得留言統計，拒絕發佈沒有數字的清單")
-    acc_max = max((r.get("accepted_at") or 0) for r in hot["results"]) if hot["results"] else 0
-    fresh = [r for r in stats if r.get("accepted_at") == acc_max]
+    fresh_set = set(hot.get("fresh_urls") or [])
+    fresh = [r for r in stats if r.get("url") in fresh_set]
     if fresh and all((r.get("rising") or 0) == 0 for r in fresh):
         raise SystemExit("本輪新收錄 rising 全 0：文章時間解析疑似失敗，拒絕發佈")
     per_hours = sorted(r["per_hour"] for r in fresh if r.get("per_hour"))
@@ -118,6 +119,10 @@ def main() -> None:
         "note": hot["note"],
         "categories": CATEGORY_NAMES,
         "results": hot["results"],
+    }, ensure_ascii=False), encoding="utf-8")
+    # 登記簿拆獨立檔：只有 build 需要，不跟著頁面資料送給每個訪客
+    (out_dir / "hot_ledger.json").write_text(json.dumps({
+        "updated_at": now,
         "ledger": hot.get("ledger") or {},
     }, ensure_ascii=False), encoding="utf-8")
     print(f"hot.json：{len(hot['results'])} 篇")

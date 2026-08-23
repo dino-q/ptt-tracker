@@ -817,10 +817,12 @@ def run_hot(task: dict, job: dict) -> None:
             threads.setdefault(f"{c['board']}|{_thread_key(c['title'])}", []).append(c)
         reps: list[dict] = []
         for group in threads.values():
-            rep = max(group, key=lambda c: c["score"])
+            # 取 |推文分| 最大者當代表：噓爆原文不會被小推的 Re: 搶走代表位
+            rep = max(group, key=lambda c: abs(c["score"]))
             rep["thread"] = len(group)
             reps.append(rep)
-        reps.sort(key=lambda c: c["score"], reverse=True)
+        # 依 |推文分| 排：X 噓爆文才進得了前 max_detail 的驗證池（V3 完整修正）
+        reps.sort(key=lambda c: abs(c["score"]), reverse=True)
         probe = reps[:max_detail]
         job_log(job, f"新候選 {len(reps)} 串，驗證前 {len(probe)} 篇留言數是否過收錄門檻")
 
@@ -878,17 +880,23 @@ def run_hot(task: dict, job: dict) -> None:
             r["ts"] = r.get("accepted_at")
         results = accepted_new + carried
         results.sort(key=lambda r: r.get("accepted_at") or 0, reverse=True)
-        results = results[:200]
+        results = results[:400]
+        # 顯示瘦身：只有最新 120 篇帶內文摘要（本機仍可點「顯示摘要」現抓，線上舊項無摘要）
+        for r in results[120:]:
+            r["preview"] = ""
 
-        # 登記簿：補進本輪新收錄、修剪過期，存回 job 供快取/site JSON 持久化
+        # 登記簿：補進本輪新收錄、修剪過期，存回 job 供快取/site 持久化
         for r in accepted_new:
             ledger[r["url"]] = now_epoch
         ledger = {u: a for u, a in ledger.items() if a >= cutoff}
         with _jobs_lock:
             job["ledger"] = ledger
+            job["fresh_urls"] = [r["url"] for r in accepted_new]  # 哨兵只驗本輪新收錄用
 
-        note += (f"，moptt 式收錄制（過板級留言門檻即收錄、依收錄時間排序、保留 {days} 天）；"
-                 f"本輪新收錄 {len(accepted_new)} 篇、沿用 {len(carried)} 篇")
+        coverage_d = (now_epoch - (results[-1].get("accepted_at") or now_epoch)) / 86400 if results else 0
+        note += (f"，moptt 式收錄制（過板級留言門檻即收錄、依收錄時間排序）；"
+                 f"本輪新收錄 {len(accepted_new)} 篇、沿用 {len(carried)} 篇，"
+                 f"feed 目前涵蓋約 {coverage_d:.1f} 天（上限 400 篇／{days} 天）")
         job_log(job, f"完成：feed 共 {len(results)} 篇（新收錄 {len(accepted_new)}／沿用 {len(carried)}）")
         with _jobs_lock:
             job["results"] = results
@@ -1261,6 +1269,8 @@ class Handler(BaseHTTPRequestHandler):
             if cached is None:
                 self._json({"error": "尚無快取"}, 404)
             else:
+                cached = dict(cached)
+                cached.pop("ledger", None)  # 登記簿是 server 內部狀態，不用送給前端
                 self._json(cached)
         elif route == "/api/article":
             qs = parse_qs(parsed.query)
