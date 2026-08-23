@@ -301,3 +301,42 @@
 - 給 Ray：建議做一次瀏覽器 regression，重點測「閱讀全文」展開/收合、內捲區域捲動（含滑到底部再滾動確認不會拖動外層頁面）、375px 下留言列不因這次的 `order` 改動而看起來斷裂或跳位——本輪只動 CSS，理論上不影響任何 click/fetch 邏輯，但建議實測收斂風險。
 - 給 Andy：請記錄「樓層欄其實本來就對齊、不需要動」與「間距沒接上 4px 刻度、雙捲軸靠 `overscroll-behavior:contain` 而非改版面結構」這兩個判斷過程，日後若再有人覺得留言列「看起來很擠」，先量測（如本輪用 Playwright 抓 boundingClientRect）再決定要不要動,不要憑印象重排。
 - 給 Andy：請記錄本輪「從六輪局部修補轉為 hallmark 整頁重設計」的判斷分水嶺（累積的零散 token 已無法靠局部修補達成協調，需要重鑄系統）、以及 `design.md` 這個新的單一事實來源上線，之後任何人改這兩份頁面的視覺，優先讀 `design.md` 而非直接讀 CSS 猜規則。
+
+## 篩選面板精修（2026-08-23：Dino 反映「按鈕太多，很難理解」後，主線已收斂 IA，這輪做視覺精修）
+
+### 任務意圖判定
+- 屬於 ②顧問（既有畫面已收斂完 IA，要把 `#filter-panel` 展開後的視覺品質、`#filter-btn` 的層級與過渡拉到專業水準），沿用 `design.md` 鎖定的 hallmark 系統，不引入新色票/新字體/新語彙。
+- 硬性先載入 `ui-ux-pro-max`（容器內正版，未用代替方案），對照 Quick Reference：Priority 5（Layout & Responsive）`visual-hierarchy`/`spacing-scale`、Priority 6（Typography & Color）`weight-hierarchy`、Priority 7（Animation）`state-transition`/`reduced-motion`、Priority 1（Accessibility）`focus-states`。
+- 用 Playwright 對兩份檔案（`web/index.html` 走既有 `http://127.0.0.1:8877`；`site/index.html` 額外起 `python -m http.server 8899` 本機臨時伺服器，因為它靠 `fetch()` 讀本地 json，`file://` 會被同源限制擋掉）分別在 1280px 與 375px 兩種寬度、money／hot 兩種資料形態下實測截圖比對，不是憑印象改。
+
+### 整體協調性檢視
+- 退一步看整張畫面：這次「新東西」是使用者展開 `#filter-panel` 後看到的五組控制項（模式／範圍／排序／看板／下載），本來就有、不是新加功能，問題是它們原本只是**單純 column 堆疊**、彼此看不出關係、且其中「模式」（`#mode-toggle`）跟「看板」用的視覺語彙（外框 pill）跟「範圍」「排序」（凹槽分段控制）不一致——同一層級的設定用了兩套不同形狀語言，這正是「局部湊功能、沒顧整體」的典型症狀。
+- 判定為**順手重排讓整體更乾淨**，不是硬塞：把 `#filter-panel` 從 `flex-direction: column` 改成 `flex-flow: row wrap`，讓「模式／範圍／排序」這幾顆天然較窄的控制項在桌面寬度足夠時自然併到同一行（實測 1280px 下三組會擠上同一行），只有較寬的看板列表、需要獨立呼吸的下載動作才會自己起新的一行——這不是新發明的分組結構，是讓 CSS flex-wrap 順著內容寬度自然产生分組節奏，比手動幫五組各自畫框更克制。窄螢幕（375px）因為每組內容本身已經比可視寬度寬，天然還是退化回一行一組，不受影響、不會變差。
+- 沒有發現需要動結構、需要跟主 Claude 討論的按鍵整合案——五組控制項全部保留、位置不變，這輪只動「同一批控制項之間的視覺關係」，不是砍功能或搬入口。
+
+### 設計決策
+1. **模式／範圍／排序統一成同一種「凹槽＋實色滑塊」語彙**：原本只有 `#sort-toggle`/`#day-filter` 用這套分段控制樣式並帶 `.sort-label`（範圍／排序），`#mode-toggle` 卻沿用外框 pill 樣式、也沒有標籤（兩顆按鈕「近期熱門」「含回鍋」讓人一時看不出這是一組單選設定還是兩顆獨立分類）。這次把 `#mode-toggle` 併入同一組選擇器、並在 HTML 補一個 `<span class="sort-label">模式</span>`——三組現在完全同語彙同對齊，使用者掃視時能立刻辨認「這排都是單選設定」。`#board-filter` 刻意不補標籤：它的收合鈕文字本身就是「看板篩選（N 板）」，已經自帶標籤語意，重複加會是贅字。
+2. **`#filter-btn` 改成獨立完整樣式，不再依賴 `.ghost`/`.tab`**：審查時發現 `web/index.html` 用 `class="ghost"`（矩形、`--radius` 12px）、`site/index.html` 用 `class="tab"`（膠囊、`--radius-pill`）——兩份「應視覺一致」的頁面同一顆按鈕形狀不同，判定為未察覺的漂移，這次補齊。改用完整的 id 層級樣式，圓角改採 `--radius-sm`（8px）跟緊鄰的 `#filter-box` 對齊，讓兩者同排時圓角呼應、視覺權重相稱；`has-active` 從「只變邊框色」升級成 `background:accent-soft`（沿用 `.tab.active`/`.note` 已有的淡底語彙，不是新色），非預設篩選時更容易被瞄到。
+3. **展開/收合加過渡，尊重 reduced-motion**：`#filter-panel` 加 `opacity`/`transform` 過渡＋`display ... allow-discrete`／`@starting-style`（CSS Transitions Level 2 標準寫法，展開時從上方 4px 處淡入，不需要動 JS 的 `style.display` 邏輯，該行為完全沿用）；不支援的舊瀏覽器會直接忽略這組宣告、退化成原本的瞬間開合，不會壞。已用 Playwright `emulate_media(reduced_motion="reduce")` 實測：開啟後 100ms 內面板 `opacity` 已是 `1`、子項目已可見，確認全域既有的 `prefers-reduced-motion` 規則正確覆蓋到這裡。
+4. **`.export-actions` 補回左側分隔線**：審查時發現桌面版原本完全沒有這條分隔線的宣告，但既有的 375px 媒體查詢卻在「重設」`margin-left:0;padding-left:0;border-left:0`——這三個屬性在桌面版根本沒被設定過，是死程式碼/遺留斷點，判定為先前修改時漏補的桌面基準值。這次補上 `margin-left`/`padding-left`/`border-left`，讓「下載」這個動作跟前面的篩選 chips 有清楚的分隔，尤其省錢頁面板內原本只有「範圍＋下載」兩組、容易顯得單薄，這條分隔線讓它讀起來是「範圍 | 下載」兩段式，不是空蕩蕩的一排。
+5. **空狀態補成虛線卡片**：`#no-data`（功能頁尚未有資料）與 `#items .empty`（過濾後 0 篇）原本只是一行裸灰字，這次統一收進跟 `#filter-panel` 頂端已建立的「虛線＝次要／暫時性邊界」語彙一致的卡片（`border:1px dashed`、置中、`--space-8` 留白），讓「沒有資料」看起來是設計過的狀態，不是漏畫。
+6. **375px 搜尋框＋篩選鈕同排**：實測發現改動前兩份頁面在窄螢幕下「篩選」鈕會被擠到搜尋框下面自成一行（`web` 甚至因為 `#filter-box{flex-basis:100%}` 的舊規則逼搜尋框強制滿版、把篩選鈕擠到第三行）。這次移除該強制滿版規則、把 `#filter-box` 的 mobile 最小寬度從 160px 降到 120px，並讓次要的「共 N 篇」計數用 `order:3;flex-basis:100%` 排到自己整行——搜尋框＋篩選鈕現在窄螢幕也維持同排，跟桌面行為一致；`site/index.html` 原本連這個媒體查詢區塊都沒有對應規則，這次一併補上同一組值，避免兩份頁面再度漂移。
+7. **克制**：沒有幫每組控制項加背景框/ 卡中卡（會製造裝飾感、跟 hallmark「無裝飾、靠留白與字重分層」的方向衝突）；`#board-filter` 沒有勉強套用「凹槽分段」樣式（它是多選、非分段單選，維持外框 pill 語彙才符合語意，不是為了「統一」而錯誤統一）；沒有加箭頭圖示/rotate 動畫在 `#filter-btn` 上——JS 本身已把展開/收合狀態寫進按鈕文字（`▾`/`▴`），CSS 加圖示會跟文字內容打架，違反鐵則也是多餘裝飾。
+
+### 產物位置
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`——`<style>` 內：分段控制選擇器群組（併入 `#mode-toggle`）、`#filter-btn`／`.has-active`、`#filter-panel`（含 `@starting-style`）、`.export-actions`、`#no-data`、`#items .empty`、`@media (max-width:26.25rem)` 內 `#results-head`/`#filter-box` 幾條規則；`<body>` 內僅在 `#mode-toggle` 加一個 `<span class="sort-label">模式</span>`。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html`——同一組 CSS 改法（含新增的 mobile `#count`/`#filter-box` 規則，原本這個檔案的媒體查詢區塊沒有對應項目）；`<body>` 同樣補 `#mode-toggle` 的 `模式` 標籤。
+- 兩份檔案的 `<script>`、所有 `id`/`class`/`data-*`（`filter-btn`/`filter-panel`/`has-active`/`mode-toggle`/`day-filter`/`sort-toggle`/`board-filter`/`bf-toggle`/`export-actions`/`dl-comments`/`btn-export` 等）與事件綁定邏輯**逐行核對後完全未動**；`#filter-panel` 的 `display` 仍完全由 JS 控制（flex/none），CSS 只加了不影響該屬性判讀的 opacity/transform 過渡。
+- 執行方式：`web/index.html` 照舊跑既有 server（`http://127.0.0.1:8877`）；`site/index.html` 本機測試需自起靜態伺服器（如 `python -m http.server`），`file://` 會因 `fetch()` 同源限制載入失敗，屬既有已知限制、與本輪改動無關。
+
+### 自審結果（④ 心法）
+- a11y：`#filter-btn` 鍵盤 Tab 順序、focus ring 皆已用 Playwright 實測（`#filter-box` → Tab → 落在 `#filter-btn`，且沿用全域 `:focus-visible` accent 外框，實測截圖可見清楚的外框）；色彩沿用既有已核算過對比的 token，未新增色值。
+- 狀態完整度：`#filter-btn` 新補 `hover`/`active`/`has-active` 三態（原本只有 `has-active` 一種），過渡沿用全域 `button{transition:...}`；`#filter-panel` 展開/收合過渡已測試一般模式與 `prefers-reduced-motion:reduce` 兩種情境皆正常。
+- RWD：375px 下 money／hot 兩種資料型態（僅範圍＋下載 vs. 五組全開）皆已截圖核對，未爆版、搜尋框＋篩選鈕同排、看板膠囊多列自然換行不受影響。
+- 對比：`has-active` 新用的 `--color-accent-soft` 背景是既有 token（`.tab.active`/`.note` 已在用），未新增顏色，無需重新算對比。
+- 測試：`tests/verify_v21.py` 於改動前後各跑一次皆為 `ALL PASS`（含篩選面板展開收合、天數/排序/看板篩選、批次下載等既有斷言）。
+
+### 後續建議
+- 給 Ray：建議針對 `#filter-panel` 展開/收合、`#mode-toggle` 新標籤不影響既有 `.tab` 點擊事件、`.export-actions` 分隔線在各種資料形態下不同排列組合，跑一次瀏覽器 regression——本輪只動 CSS/新增一個不帶 `.tab` class 的 `<span>`，理論上零風險，但建議實測收斂。
+- 給 Andy：請記錄「`.export-actions` 桌面基準值遺失、被 mobile 媒體查詢重設一個從未存在的值」這個案例——這是「改動時只顧局部（加 mobile 覆寫）、沒回頭確認桌面基準是否真的定義過」的具體教訓，日後審查 CSS 覆寫規則時可以此為例。
+- 給 Bevis：這次調整純粹是視覺精修，沒有動任何資訊架構或功能，不影響產品方向判斷，僅供備查。

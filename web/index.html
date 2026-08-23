@@ -244,18 +244,19 @@
   .tab.active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); font-weight: 600; }
   .sort-label { font-size: .72rem; color: var(--color-ink-2); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
 
-  /* 範圍／排序：同一種「凹槽＋實色滑塊」分段控制項語言，跟上面外框 pill 的看板／分類篩選刻意拉開視覺差異 */
-  #sort-toggle, #day-filter {
+  /* 模式／範圍／排序：同一種「凹槽＋實色滑塊」分段控制項語言＋一致的小型標籤，
+     跟旁邊外框 pill 的看板／分類篩選刻意拉開視覺差異——三組同語彙，使用者一眼認得
+     「這排都是單選設定」，不用逐一分辨 */
+  #mode-toggle, #sort-toggle, #day-filter {
     background: var(--color-chip); border-radius: var(--radius-pill); padding: 3px var(--space-2) 3px 3px; gap: 2px;
   }
-  #sort-toggle .sort-label, #day-filter .sort-label { padding-left: var(--space-2); }
-  #sort-toggle .tab, #day-filter .tab { background: transparent; border: 0; color: var(--color-ink-2); padding: 6px var(--space-3); font-size: .82rem; }
-  #sort-toggle .tab:hover, #day-filter .tab:hover { color: var(--color-accent); }
-  #sort-toggle .tab.active, #day-filter .tab.active {
+  #mode-toggle .sort-label, #sort-toggle .sort-label, #day-filter .sort-label { padding-left: var(--space-2); }
+  #mode-toggle .tab, #sort-toggle .tab, #day-filter .tab { background: transparent; border: 0; color: var(--color-ink-2); padding: 6px var(--space-3); font-size: .82rem; }
+  #mode-toggle .tab:hover, #sort-toggle .tab:hover, #day-filter .tab:hover { color: var(--color-accent); }
+  #mode-toggle .tab.active, #sort-toggle .tab.active, #day-filter .tab.active {
     background: var(--color-surface); border-color: transparent; color: var(--color-ink);
     font-weight: 600; box-shadow: var(--shadow-whisper);
   }
-  #day-filter + #sort-toggle { margin-left: var(--space-1); }
 
   #results-head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-top: var(--space-3); }
   #results-head .count { font-size: .88rem; color: var(--color-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -264,22 +265,53 @@
     border: 1px solid var(--color-line); border-radius: var(--radius-sm);
     background: var(--color-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6f6a' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 10px center / 14px;
   }
-  /* 篩選面板：次要控制項集中在此，預設收合——畫面平時只有分類＋搜尋＋一顆篩選鈕 */
-  #filter-btn { min-height: 40px; padding: 8px var(--space-4); font-size: .88rem; white-space: nowrap; }
-  #filter-btn.has-active { border-color: var(--color-accent); color: var(--color-accent); }
-  #filter-panel {
-    flex-direction: column; align-items: flex-start; gap: var(--space-3);
-    margin-top: var(--space-3); padding-top: var(--space-3);
-    border-top: 1px dashed var(--color-line);
+  /* 篩選鈕：獨立完整樣式（不掛 .ghost/.tab），圓角跟緊鄰的 #filter-box 對齊（radius-sm），
+     同排時視覺權重才服貼；has-active 用跟 .tab.active／.note 共用的 accent-soft 淡底，
+     比單純變色邊框更容易被瞄到「現在不是預設篩選」 */
+  #filter-btn {
+    display: inline-flex; align-items: center;
+    min-height: 40px; padding: 8px var(--space-4); font-size: .88rem; font-weight: 600; white-space: nowrap;
+    background: var(--color-surface); border: 1px solid var(--color-line); border-radius: var(--radius-sm);
+    color: var(--color-ink-2); cursor: pointer;
   }
-  /* 下載動作群組（在篩選面板內） */
+  #filter-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  #filter-btn:active { filter: brightness(.97); }
+  #filter-btn.has-active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); }
+  /* 篩選面板：改用 row-wrap 而非單純 column 堆疊——桌面寬度夠時模式／範圍／排序這幾顆
+     小控制項會自然併到同一行，只有較寬的看板列表／下載動作才會自己起新的一行，
+     比每組各自獨佔一整行更有「呼吸感」、也更看得出彼此是同一層級的篩選設定；
+     展開/收合加 opacity+transform 過渡（display 用 allow-discrete 銜接，不支援的瀏覽器優雅退化成無動畫），
+     全域 reduced-motion 規則已覆蓋此處，動作敏感的使用者不會看到位移 */
+  #filter-panel {
+    display: flex; flex-flow: row wrap; align-items: center;
+    gap: var(--space-3) var(--space-5);
+    margin-top: var(--space-3); padding-top: var(--space-4);
+    border-top: 1px dashed var(--color-line);
+    opacity: 1; transform: translateY(0);
+    transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out),
+      display var(--dur-med) allow-discrete;
+  }
+  @starting-style {
+    #filter-panel { opacity: 0; transform: translateY(-4px); }
+  }
+  /* 下載動作群組（在篩選面板內）：左側加一條分隔線，跟前面的篩選 chips 拉開——
+     這是「動作」不是「篩選條件」，尤其省錢頁面板內只有範圍＋下載兩組時，分隔線
+     能撐出清楚的兩段式結構，不會顯得面板內容單薄 */
   .export-actions {
     display: flex; align-items: center; gap: var(--space-3);
+    margin-left: var(--space-2); padding-left: var(--space-4);
+    border-left: 1px solid var(--color-line);
   }
   .note { background: var(--color-accent-soft); color: var(--color-ink); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
   #export-path:not(:empty) { margin-top: var(--space-3); }
   #export-path { font-size: .85rem; color: var(--color-accent); word-break: break-all; }
-  #no-data { color: var(--color-ink-2); font-size: .95rem; padding: var(--space-4) 0; }
+  /* 空狀態：獨立成一張虛線卡片而非裸露一行灰字——跟 #filter-panel 頂端已建立的
+     「虛線＝次要／暫時性邊界」語彙呼應，讓「沒有資料」看起來是刻意設計的狀態，不是漏畫 */
+  #no-data {
+    color: var(--color-ink-2); font-size: .95rem; text-align: center;
+    padding: var(--space-8) var(--space-4); background: var(--color-surface);
+    border: 1px dashed var(--color-line); border-radius: var(--radius);
+  }
 
   /* ---------- 結果卡片 ---------- */
   .item { margin-bottom: var(--space-3); }
@@ -338,6 +370,11 @@
     padding: 1px 8px; margin-right: 6px; vertical-align: 2px;
   }
   .empty { color: var(--color-ink-2); font-size: .95rem; }
+  /* 結果清單的空狀態（過濾後 0 篇）沿用跟 #no-data 一致的虛線卡片語彙 */
+  #items .empty {
+    display: block; text-align: center; padding: var(--space-8) var(--space-4);
+    background: var(--color-surface); border: 1px dashed var(--color-line); border-radius: var(--radius);
+  }
   .error { color: var(--color-warn); font-size: .9rem; font-weight: 600; }
   /* 卡片動作列（置頂/轉傳），沿用 .toggle 的文字按鈕視覺 */
   .item-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
@@ -375,8 +412,11 @@
 
   @media (max-width: 26.25rem) {
     .ask, .row-actions { flex-direction: column; align-items: stretch; }
-    #results-head { align-items: stretch; }
-    #filter-box { flex-basis: 100%; }
+    /* 搜尋框＋篩選鈕窄螢幕仍維持同一排（跟桌面行為一致）；篇數計數改排到自己整行，
+       避免三者硬擠成一行把搜尋框壓到打不了字 */
+    #results-head { align-items: center; }
+    #results-head .count { order: 3; flex-basis: 100%; }
+    #filter-box { min-width: 120px; }
     .export-actions {
       margin-left: 0; padding-left: 0; border-left: 0; flex-basis: 100%;
       justify-content: space-between; padding-top: var(--space-2); border-top: 1px solid var(--color-line);
@@ -566,6 +606,7 @@
       </div>
       <div id="filter-panel" style="display:none">
         <span class="tabs" id="mode-toggle" style="display:none; margin-bottom:0">
+          <span class="sort-label">模式</span>
           <button class="tab active" data-mode="recent">近期熱門</button>
           <button class="tab" data-mode="all">含回鍋（不分期間）</button>
         </span>

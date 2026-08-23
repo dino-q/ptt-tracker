@@ -96,23 +96,38 @@
   .tab.active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); font-weight: 600; }
   .sort-label { font-size: .72rem; color: var(--color-ink-2); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
 
-  #sort-toggle, #day-filter {
+  /* 模式／範圍／排序：同一種「凹槽＋實色滑塊」分段控制項語言＋一致的小型標籤（與 web/index.html 同步） */
+  #mode-toggle, #sort-toggle, #day-filter {
     background: var(--color-chip); border-radius: var(--radius-pill); padding: 3px var(--space-2) 3px 3px; gap: 2px;
   }
-  #sort-toggle .sort-label, #day-filter .sort-label { padding-left: var(--space-2); }
-  #sort-toggle .tab, #day-filter .tab { background: transparent; border: 0; color: var(--color-ink-2); padding: 6px var(--space-3); font-size: .82rem; }
-  #sort-toggle .tab:hover, #day-filter .tab:hover { color: var(--color-accent); }
-  #sort-toggle .tab.active, #day-filter .tab.active {
+  #mode-toggle .sort-label, #sort-toggle .sort-label, #day-filter .sort-label { padding-left: var(--space-2); }
+  #mode-toggle .tab, #sort-toggle .tab, #day-filter .tab { background: transparent; border: 0; color: var(--color-ink-2); padding: 6px var(--space-3); font-size: .82rem; }
+  #mode-toggle .tab:hover, #sort-toggle .tab:hover, #day-filter .tab:hover { color: var(--color-accent); }
+  #mode-toggle .tab.active, #sort-toggle .tab.active, #day-filter .tab.active {
     background: var(--color-surface); border-color: transparent; color: var(--color-ink); font-weight: 600; box-shadow: var(--shadow-whisper);
   }
-  #day-filter + #sort-toggle { margin-left: var(--space-1); }
-  /* 篩選面板：次要控制項集中在此，預設收合 */
-  #filter-btn { min-height: 40px; padding: 8px var(--space-4); font-size: .88rem; white-space: nowrap; }
-  #filter-btn.has-active { border-color: var(--color-accent); color: var(--color-accent); }
+  /* 篩選鈕：獨立完整樣式，圓角跟緊鄰的 #filter-box 對齊（radius-sm）；has-active 用 accent-soft 淡底 */
+  #filter-btn {
+    display: inline-flex; align-items: center;
+    min-height: 40px; padding: 8px var(--space-4); font-size: .88rem; font-weight: 600; white-space: nowrap;
+    background: var(--color-surface); border: 1px solid var(--color-line); border-radius: var(--radius-sm);
+    color: var(--color-ink-2); cursor: pointer;
+  }
+  #filter-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  #filter-btn:active { filter: brightness(.97); }
+  #filter-btn.has-active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); }
+  /* 篩選面板：row-wrap 讓模式／範圍／排序這幾顆小控制項在夠寬時自然併行，過渡與 web/index.html 同步 */
   #filter-panel {
-    flex-direction: column; align-items: flex-start; gap: var(--space-3);
-    margin-top: var(--space-3); padding-top: var(--space-3);
+    display: flex; flex-flow: row wrap; align-items: center;
+    gap: var(--space-3) var(--space-5);
+    margin-top: var(--space-3); padding-top: var(--space-4);
     border-top: 1px dashed var(--color-line);
+    opacity: 1; transform: translateY(0);
+    transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out),
+      display var(--dur-med) allow-discrete;
+  }
+  @starting-style {
+    #filter-panel { opacity: 0; transform: translateY(-4px); }
   }
 
   #head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-top: var(--space-3); }
@@ -200,6 +215,11 @@
   .cmt-time { color: var(--color-ink-2); font-size: .75rem; }
   .toggle:active { opacity: .7; }
   .empty { color: var(--color-ink-2); font-size: .95rem; }
+  /* 空狀態（載入中／過濾後 0 篇）用虛線卡片，呼應 #filter-panel 頂端的虛線分隔語彙 */
+  #items .empty {
+    display: block; text-align: center; padding: var(--space-8) var(--space-4);
+    background: var(--color-surface); border: 1px dashed var(--color-line); border-radius: var(--radius);
+  }
   .error { color: var(--color-warn); font-weight: 600; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   footer { color: var(--color-ink-2); font-size: .78rem; border-top: 1px solid var(--color-line); padding-top: var(--space-4); margin-top: var(--space-9); }
@@ -210,6 +230,9 @@
 
   /* 與 web/index.html 共用同一個手機斷點值（26.25rem / 420px），避免兩邊各自定義漂移 */
   @media (max-width: 26.25rem) {
+    /* 搜尋框＋篩選鈕窄螢幕仍維持同一排；篇數計數改排到自己整行，避免三者硬擠成一行 */
+    #count { order: 3; flex-basis: 100%; }
+    #filter-box { min-width: 120px; }
     /* 留言列窄螢幕重排：樓層/標籤/作者/時間留在同一條「標頭列」（時間靠右對齊收尾），
        內文另起一整行、用 hanging indent 對齊作者欄，取代「時間被擠成孤立第三行」的原生 flex-wrap 結果 */
     .cmt-time { order: 1; margin-left: auto; }
@@ -248,6 +271,7 @@
     </div>
     <div id="filter-panel" style="display:none">
       <span class="tabs" id="mode-toggle" style="display:none; margin-bottom:0">
+        <span class="sort-label">模式</span>
         <button class="tab active" data-mode="recent">近期熱門</button>
         <button class="tab" data-mode="all">含回鍋（不分期間）</button>
       </span>
