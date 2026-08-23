@@ -202,7 +202,8 @@ def default_tracks() -> list[dict]:
                 "min_push": 30,
                 "search_pages": 2,
                 "max_detail": 40,
-                "days": 2,
+                # 熱門視窗 3 天，與前端天數選項（熱門只開 1/3）對齊；再久的熱文沒有時效意義
+                "days": 3,
             },
         },
     ]

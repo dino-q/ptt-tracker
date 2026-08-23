@@ -20,7 +20,10 @@
        --new on --new-soft ≈ 5.56:1（AA 一般文字需 4.5:1），--new-soft on 白卡片 ≈ 6.5:1（非文字元件需 3:1） */
     --new: #2b5f9e;
     --new-soft: #e7eef8;
-    --chip: #eef1f4;
+    /* 凹槽控制項（.views 導覽軌道／#day-filter／#sort-toggle）用底色；跟 --bg 拉開到肉眼可辨的程度，
+       避免兩個凹槽控制項並排時（本輪 #day-filter + #sort-toggle 同時出現）因底色跟頁面背景太接近
+       而讓邊界消失、看起來像一整排散落的文字按鈕 */
+    --chip: #e7eaef;
     --radius: 10px;
     --radius-sm: 8px;
     --radius-pill: 999px;
@@ -246,6 +249,9 @@
   #day-filter .tab { background: transparent; border: 0; color: var(--ink-2); padding: 6px var(--space-3); font-size: .82rem; }
   #day-filter .tab:hover { color: var(--accent); }
   #day-filter .tab.active { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(31,39,51,.12); }
+  /* 天數與排序兩個凹槽控制項在熱門結果會同時出現、緊鄰排列；補一點額外間距（在既有 flex gap 之上疊加），
+     用「留白」而非邊框把兩組控制項的視覺邊界拉開，避免看起來像一整排連續的文字按鈕 */
+  #day-filter + #sort-toggle { margin-left: var(--space-2); }
   /* 卡片動作列（置頂/轉傳），沿用 .toggle 的文字按鈕視覺 */
   .item-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
   .item .act {
@@ -257,15 +263,18 @@
     border-radius: var(--radius-pill); font-size: .72rem; font-weight: 600;
     padding: 1px 8px; margin-right: 6px; vertical-align: 2px;
   }
-  /* 回到最上方：Dino 明確要求的一鍵回頂；平時隱藏、往下捲才出現，做小不擋內容 */
+  /* 回到最上方：Dino 明確要求的一鍵回頂；平時隱藏、往下捲才出現。
+     尺寸維持 44×44（觸控最小熱區下限，不能再縮小）；用半透明底＋輕陰影讓它感覺「浮在上面」
+     而不是一張不透明的白卡片蓋住底下內容，降低視覺干擾感 */
   #to-top {
     position: fixed; right: 18px; bottom: 18px; display: none;
     width: 44px; height: 44px; border-radius: 50%;
-    background: var(--surface); color: var(--accent);
-    border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(31,39,51,.18);
+    background: rgba(255, 255, 255, .88); backdrop-filter: blur(4px);
+    color: var(--accent); border: 1px solid var(--line);
+    box-shadow: 0 2px 6px rgba(31,39,51,.14);
     font-size: 1.2rem; cursor: pointer;
   }
-  #to-top:hover { border-color: var(--accent); }
+  #to-top:hover { border-color: var(--accent); background: var(--surface); }
   footer { color: var(--ink-2); font-size: .78rem; border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-8); }
   @media (max-width: 420px) {
     .ask, .row-actions { flex-direction: column; align-items: stretch; }
@@ -500,15 +509,15 @@ function savePins() {
 }
 let PINS = loadPins();
 
-function dayFiltered(results) {
+function dayOk(r) {
   // 日曆日語意：「3天」＝今天含前兩天（以午夜為界），跟列表顯示的日期直覺一致；
   // 沒有 ts 的項（舊快取/無統計）保留不誤殺
-  if (!DAYS) return results;
+  if (!DAYS || !r.ts) return true;
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
-  const cutoff = midnight.getTime() - (DAYS - 1) * 86400e3;
-  return results.filter(r => !r.ts || r.ts * 1000 >= cutoff);
+  return r.ts * 1000 >= midnight.getTime() - (DAYS - 1) * 86400e3;
 }
+function dayFiltered(results) { return results.filter(dayOk); }
 // 各功能頁各自的結果狀態：{results, note, name}
 const VIEW_DATA = { money: null, hot: null, author: null, advanced: null };
 
@@ -876,7 +885,12 @@ function renderTabs() {
   const data = VIEW_DATA[VIEW];
   const all = data ? data.results : [];
   $("day-filter").style.display = all.some(r => r.ts) ? "flex" : "none";
-  const results = dayFiltered(all);
+  // 熱門資料視窗只有 3 天，5/10 天選項在熱門頁是無效操作，藏起來
+  document.querySelectorAll("#day-filter .tab").forEach(t => {
+    t.style.display = (VIEW === "hot" && parseInt(t.dataset.days, 10) > 3) ? "none" : "";
+  });
+  // 置頂項永遠顯示，計數也要算進去，否則「全部 N」跟「共 M 篇」對不上
+  const results = all.filter(r => PINS.has(r.url) || dayOk(r));
   const hasCats = results.some(r => (r.cats || []).length);
   if (!hasCats) { box.style.display = "none"; return; }
   // 分類頁籤由結果自身推導（省錢＝通路標籤、熱門＝看板主題），
@@ -907,20 +921,19 @@ function renderTabs() {
 function applyFilters() {
   const data = VIEW_DATA[VIEW];
   const all = data ? data.results : [];
-  // 置頂項不受天數/分類/文字過濾影響，永遠排最前（避免被日期視窗滑掉）
-  const pinned = all.filter(r => PINS.has(r.url));
+  const q = $("filter-box").value.trim().toLowerCase();
+  const matchQ = r => !q ||
+    (r.title + " " + (r.author || "") + " " + (r.board || "") + " " + (r.preview || "")).toLowerCase().includes(q);
+  // 置頂項不受天數/分類過濾影響永遠排最前（避免被日期視窗滑掉）；
+  // 但文字搜尋要一起過，否則搜「全家」時不相關的置頂項會像誤命中
+  const pinned = all.filter(r => PINS.has(r.url) && matchQ(r));
   let list = dayFiltered(all).filter(r => !PINS.has(r.url));
   if (ACTIVE_CAT !== "全部") {
     list = ACTIVE_CAT === "其他"
       ? list.filter(r => !(r.cats || []).length)
       : list.filter(r => (r.cats || []).includes(ACTIVE_CAT));
   }
-  const q = $("filter-box").value.trim().toLowerCase();
-  if (q) {
-    list = list.filter(r =>
-      (r.title + " " + (r.author || "") + " " + (r.board || "") + " " + (r.preview || "")).toLowerCase().includes(q)
-    );
-  }
+  list = list.filter(matchQ);
   // 熱門結果有 rising 欄位時提供排序切換
   const sortable = list.some(r => r.rising !== undefined);
   $("sort-toggle").style.display = sortable ? "flex" : "none";

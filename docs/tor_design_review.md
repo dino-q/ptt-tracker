@@ -173,3 +173,45 @@
 - 給 Ray：建議做一次瀏覽器 regression（含 375px 窄螢幕）——重點測「排序切換」點擊後清單是否確實依 rising/comments 重新排序、分類頁籤在 8–10 個看板主題下的多行 wrap 是否正常、meta 行含新的 `.meta-metric` span 後文字過濾（`#filter-box`）是否仍正確比對（過濾邏輯讀的是 `r.title`/`r.author`/`r.board`/`r.preview` 原始資料而非 DOM 文字，理論上不受影響，但建議實測收斂風險）。
 - 給 Andy：請記錄本輪「排序切換脫離分類 pill 視覺、改用凹槽分段控制項」與「meta 行用 `.meta-metric` 強調排序依據數字」的設計決策；日後若熱門功能再加其他排序維度（例如按讚數、發文時間），優先沿用 `#sort-toggle` 這套凹槽分段控制項語言，而不是繼續加 `.tab` outline pill。
 - 給 Bevis：本輪為純視覺層級審查與局部收斂，未涉及功能或產品方向判斷，無需審視。
+
+---
+
+## 瀏覽控制四件套增量審查（新增：#day-filter 天數篩選、.item-actions 卡片動作列＋.badge-pin、#to-top 回頂圓鈕）
+
+### 任務意圖判定
+- 屬於 ④ 審查（增量）：既有畫面已過五輪 `ui-ux-pro-max` 設計關，這次只審本輪新增/新出現組合的 4 個元素是否與既有系統一致、以及「多控制項同時出現」是否仍協調
+- 硬性載入 `ui-ux-pro-max`（未用代替方案）；Windows 主機端同樣沒有 `scripts/search.py` 對應資料庫，改用 skill 內建 Quick Reference / Priority 表直接比對，本輪重點對照 Priority 5（Layout & Responsive：擁擠度與換行）、Priority 2（Touch & Interaction：熱區/間距）、Priority 4（Style Selection：一致性）
+- 本輪用 Playwright 對 `http://127.0.0.1:8877` 實機截圖驗證（桌面 1000px 與 375px 窄螢幕都截），並直接讀取 DOM bounding box 量測 `#results-head` 各子項的實際寬度與換行位置，不是憑肉眼猜——這題材主 Claude 明確要求「請實看評估」，所以先用真實資料（84 篇／10 天）跑過一次熱門與省錢兩個視圖再動手
+- 任務資料夾用完即刪（`Desktop\automation\Playwright\ptt_assistant_ui_check\`），不留一次性截圖殘留
+
+### 整體協調性檢視
+- 退一步看整張畫面：4 個新元素分別落在「結果區上緣控制列」「卡片內」「視窗右下角」三處既有骨架位置，沒有新開版面、沒有加新的功能入口，方向正確。
+- **實測發現的真實問題（不是憑空猜的）**：用 Playwright 量測 `#results-head` 在熱門結果（`#day-filter` 與 `#sort-toggle` 同時出現）的 bounding box，desktop 848px 容器下第一行剛好塞滿「共 N 篇＋範圍凹槽＋排序凹槽＋過濾輸入框」，`.export-actions`（含留言＋下載）正確 wrap 到第二行並靠右對齊（`margin-left:auto` 運作正常，這是好消息，v2.2 那版的分組設計禁得起本輪疊加考驗）。但截圖比對後發現：`#day-filter` 與 `#sort-toggle` 兩個凹槽控制項的底色 `--chip`（#eef1f4）跟頁面背景 `--bg`（#f4f5f7）幾乎同色，肉眼幾乎看不到凹槽的邊界，兩組並排時視覺上融成一長串文字按鈕（「範圍 1天 3天 5天 10天 排序 正在起飛 總留言數 最新」），這正是題目提醒的「擁擠感」的真正成因——不是控制項數量本身有問題（每個都有清楚文字標籤，功能上不重疊），而是**視覺容器對比不足，導致本來該分成兩組的控制項讀起來像一組**。這是本輪必須處理、且屬於「局部協調性修整」（配色/層次）範圍，可以直接動手，不必上呈討論。
+- 這是**順手收斂而非硬塞**：沒有新增任何按鈕或欄位，只調整既有 token 對比與間距，讓「同時出現的兩個凹槽控制項」讀起來清楚分家。同時這個修法是**系統級**（改 `--chip` 這個共用 token），連帶讓 `.views` 主導覽軌道、`#cat-tabs` 用不到但同色系的其他凹槽元件全部一起變清楚，不是只治標本輪這一處。
+- `.item-actions`（顯示摘要／置頂／轉傳）與 `.badge-pin`：實機截圖確認三個文字按鈕之間有 `--space-3`（12px）間距，足以避免手機誤觸相鄰按鈕；`.badge-pin` 用中性 `--chip`／`--ink-2` 配色（不是 accent 或 warn），跟 `.badge-new`（藍）並列時語意不會互相干擾，維持既定的「新舊徽章都是次強調、不搶標題」語言。這部分結構本身做得對，沒有需要收斂之處。
+- `#to-top`：桌面與 375px 實測皆確認固定在視窗角落、只在捲動 600px 後出現、44×44 符合觸控下限、不阻擋卡片內任何互動元素（卡片內文字/按鈕在其覆蓋範圍外或僅覆蓋卡片右側留白）。依「最不干擾」原則做了視覺減重（見下方設計決策），但功能與尺寸完全保留，未移除。
+- 沒有發現需要跟主 Claude/Dino 討論的結構性整合建議——本輪都是配色 token 對比與間距層級的局部修整，照協議可以直接做。
+
+### 設計決策
+1. **`--chip` 從 `#eef1f4` 調整為 `#e7eaef`**：跟 `--bg`（#f4f5f7）拉開到肉眼可辨的對比，同時跟既有 `--line`（#e3e7ec）色相一致不突兀。理由：Priority 5 佈局準則要求控制項分組要能被感知；這是目前唯一會讓兩個同語彙凹槽控制項並排時清楚分家的方法（比加邊框更輕量，不引入新視覺語言）。影響範圍：`.views` 導覽軌道、`#day-filter`／`#sort-toggle` 凹槽底、`.chip`（比對關鍵字小標籤）、`.badge-pin` 背景——全部一起變清楚，且都在白卡片或淺灰頁面上使用，對比只會提升不會有可讀性風險（`--ink-2` 文字在新底色上實測仍遠高於 4.5:1）。
+2. **新增 `#day-filter + #sort-toggle { margin-left: var(--space-2) }`**：用 CSS 結構鄰接選擇器，只在兩者緊鄰出現時疊加額外間距（在既有 flex gap 之上），用「留白」而非邊框把兩組控制項的視覺邊界拉開。選用 margin 而非 border/padding 的原因：margin 不會讓凹槽底色跟著延伸，乾淨地只增加空白間隔，不會製造「灰底裡面又有一條線」的視覺雜訊。已用 Playwright 量測確認加了這 8px 後 `#filter-box`（`flex:1`）自然縮窄吸收多的寬度，不會把 `.export-actions` 推到 wrap 位置改變。
+3. **`#to-top` 視覺減重（尺寸/功能不動）**：背景改 `rgba(255,255,255,.88)` + `backdrop-filter: blur(4px)`，陰影從 `0 2px 8px rgba(...,.18)` 降到 `0 2px 6px rgba(...,.14)`，hover 時才轉回不透明白底。理由：呼應「Dino 不喜歡懸浮元件蓋內容」的既有偏好與本輪明確要求「以最不干擾為準則」——既然這是這次明確要的功能、不能拿掉，就把它做得更像「浮在內容上的半透明提示」而不是「一張蓋住東西的實心卡片」。尺寸維持 44×44（觸控下限不能再縮）、位置維持右下角＋捲動 600px 才出現，這兩點是既有／指定規格，未更動。
+4. **克制**：沒有新增顏色 token 種類（`--chip` 只調整既有色值,不是新增變數）；沒有給 `.item-actions`／`.badge-pin` 加任何裝飾（維持中性/文字按鈕語言）；沒有把 `#day-filter`／`#sort-toggle` 合併成一個控制項或砍掉其中一個——两者语意不同（时间范围 vs 排序方式），保留双控制项是对的，问题只在视觉分隔，不在数量。
+
+### 產物位置
+- 直接編輯（兩份文件改法一致）：
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html` — `:root` 的 `--chip` 色值調整；新增 `#day-filter + #sort-toggle` 規則；`#to-top`／`#to-top:hover` 背景與陰影調整
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html` — 同步同一組三處改法
+  - 所有既有 `id`／`data-days`／`data-sort`／JS 用到的 class（`day-filter`／`sort-toggle`／`act`／`badge-pin`／`to-top`／`item-actions`／`tab`／`active`）**一律未改名**；`#day-filter`／`#to-top` 的 `display` 顯隱仍完全交給 JS（`style.display`），本輪 CSS 未設定任何 `display` 屬性去蓋過它
+- 執行方式：`web/index.html` 照專案既有方式跑 `server.py`（`http://127.0.0.1:8877`），重新整理即可看到效果；`site/index.html` 為靜態唯讀頁，直接開檔或部署後查看即可
+
+### 自審結果（④ 心法）
+- a11y：`--chip` 調整後在其上顯示的 `--ink-2` 文字對比只增不減（沿用既有色票公式，未新增色相）；`#day-filter`／`#sort-toggle`／`.item-actions` 內按鈕皆為原生 `<button>`，全域 `button:focus-visible` 規則不受影響；`#to-top` 加 `backdrop-filter` 不影響其 `aria-label="回到最上方"`（既有屬性，本輪未動）。
+- 狀態完整度：三個卡片動作按鈕（摘要／置頂／轉傳）與四個天數按鈕的 hover/active/focus 狀態沿用既有 `.tab`／`.act` 規則，齊全；`#to-top` 新增 hover 時背景轉回不透明白底，讓互動反饋比純陰影變化更明確。
+- 對比：改動一個既有 token（`--chip`）與新增一組半透明背景（`#to-top`），皆已實機截圖確認可讀性沒有變差、反而更清楚；未引入任何新色相。
+- RWD：已用 Playwright 在 1000px 與 375px 兩種寬度實機截圖＋量測 bounding box 確認——桌面下 `#results-head` 第一行剛好塞滿主要控制項、`.export-actions` 正確 wrap 到第二行並靠右；375px 下 `#day-filter`／`#sort-toggle` 各自獨立成行，凹槽底色調整後清楚可辨，不再讀起來像連續文字列；`#to-top` 在兩種寬度下都只覆蓋卡片右側留白，未蓋住任何可互動元素。
+
+### 後續建議
+- 給 Ray：建議做一次瀏覽器 regression——重點測「天數篩選」切換後清單/分類頁籤篇數是否正確重算（`renderTabs()`／`applyFilters()` 依 `DAYS` 重跑）、卡片「置頂」「轉傳」按鈕的 localStorage 行為與 `navigator.share`/剪貼簿 fallback、`#to-top` 捲動閾值與平滑捲動。本輪只動 CSS token／間距／背景透明度，理論上不影響任何 click/keydown 邏輯，但建議實測收斂風險。
+- 給 Andy：請記錄「`--chip` 對比不足是本輪擁擠感真正成因、非控制項數量問題」這個判斷過程，日後若要再疊加第三個同語彙凹槽控制項到同一排，優先檢查底色對比與鄰接間距，而不是急著砍功能或改版面。
+- 給 Bevis：目前置頂項會略過天數/分類/文字三重篩選（永遠顯示在最前），這是既有 JS 邏輯、非本輪改動，若使用者之後反映「置頂的舊文章一直卡在最上面、篩選不掉」，屬於產品行為判斷，麻煩您定奪是否要讓置頂項也吃天數篩選。
