@@ -3,8 +3,12 @@
 """
 「立即更新」真 API 端對端實測：對已部署的線上頁，用真 token 走完整流程
 （CORS preflight、dispatch、帶 token 輪詢、資料換新、自動 reload）。
-token 從環境變數 GH_TOKEN 讀（例：$env:GH_TOKEN = gh auth token），絕不寫檔、絕不印出。
+token 從環境變數 GH_TOKEN 讀，絕不寫檔、絕不印出。
 會真的觸發一次雲端爬取（順便更新線上資料），全程約 3～5 分鐘。
+
+⚠️ 注意：用 `gh auth token`（全權限 OAuth）跑通不代表使用說明.md 教的那把
+fine-grained PAT（僅 ptt-tracker、僅 Actions 讀寫）也跑得過——正式驗收請把
+GH_TOKEN 設成照文件建的那把再跑一次（或在瀏覽器實按一次確認沒有 403）。
 """
 import os
 import sys
@@ -22,10 +26,12 @@ def main() -> None:
         browser = p.chromium.launch()
         ctx = browser.new_context()
         page = ctx.new_page()
-        page.add_init_script(f"localStorage.setItem('ptt_gh_token', {token!r})")
         alerts = []
         page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
         page.goto(URL)
+        # token 用 evaluate 參數傳入（不內插進 JS 字面值，避免出錯時 token 進 traceback）
+        page.evaluate("t => localStorage.setItem('ptt_gh_token', t)", token)
+        page.reload()
         page.wait_for_selector("#refresh-btn", state="visible", timeout=20_000)
         before = page.locator("#note-text").inner_text()
         print(f"觸發前：{before}")
