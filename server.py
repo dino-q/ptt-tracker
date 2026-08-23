@@ -450,6 +450,10 @@ HOT_BOARD_CATEGORY: dict[str, str] = {
     "sex": "西斯", "Beauty": "表特", "joke": "笑話", "StupidClown": "笨版", "marvel": "媽佛",
     "car": "汽機車", "biker": "汽機車", "MakeUp": "美妝", "BabyMother": "親子",
     "Japan_Travel": "旅遊", "Food": "美食", "cookclub": "美食",
+    "BaseballXXXX": "棒球",
+    "Kaohsiung": "在地", "Tainan": "在地", "Taichung": "在地", "TaichungBun": "在地",
+    "Taipei": "在地", "Hsinchu": "在地", "Taoyuan": "在地", "ChangHua": "在地",
+    "PingTung": "在地", "Keelung": "在地", "Yilan": "在地", "Hualien": "在地",
 }
 HOT_BOARD_CATEGORY.update({
     str(k): str(v) for k, v in (CONFIG.get("hot_board_categories") or {}).items()
@@ -457,8 +461,9 @@ HOT_BOARD_CATEGORY.update({
 
 
 def hot_cats(board: str) -> list[str]:
-    """熱門文的分類＝看板主題；沒對照到的板直接用板名當分類。"""
-    return [HOT_BOARD_CATEGORY.get(board, board)]
+    """熱門文的分類＝看板主題；沒對照到的板集中進「其他看板」，
+    不漏英文板名當分類（會跟看板篩選膠囊混淆，2026-08-23 Dino 回報）。"""
+    return [HOT_BOARD_CATEGORY.get(board, "其他看板")]
 
 
 _MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
@@ -880,6 +885,7 @@ def run_hot(task: dict, job: dict) -> None:
                    and (not scan_specific or r.get("board") in board_set)]
         for r in carried:
             r["ts"] = r.get("accepted_at")
+            r["cats"] = hot_cats(r.get("board") or "")  # 分類是顯示屬性，跟著最新對照表走不凍結
         results = accepted_new + carried
         results.sort(key=lambda r: r.get("accepted_at") or 0, reverse=True)
         results = results[:400]
