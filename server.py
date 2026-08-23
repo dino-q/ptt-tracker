@@ -199,11 +199,10 @@ def default_tracks() -> list[dict]:
                 "intent": "hot",
                 "board": "",
                 "hot_boards": 10,
-                "min_push": 30,
                 "search_pages": 2,
                 "max_detail": 40,
-                # 熱門視窗 3 天，與前端天數選項（熱門只開 1/3）對齊；再久的熱文沒有時效意義
-                "days": 3,
+                # moptt 式收錄制：feed 依收錄時間保留 10 天，門檻由板級留言數自動決定
+                "days": 10,
             },
         },
     ]
@@ -315,12 +314,11 @@ def parse_request(text: str) -> dict:
                 "intent": "hot",
                 "board": board or "",
                 "hot_boards": 10,
-                "min_push": 30,
                 "search_pages": 2 if not board else 3,
                 "max_detail": 40,
-                "days": min(days, 2) if not days_hit else days,
+                "days": 10,
             },
-            "summary": "熱門討論掃描（衝火速度排序，爆=100）",
+            "summary": "熱門討論（moptt 式收錄制，依收錄時間排序）",
         }
 
     # 情境一：超商 × 咖啡/飲料優惠（雙關鍵字組判定）
@@ -693,52 +691,74 @@ def run_author_export(task: dict, job: dict) -> None:
 
 
 def run_hot(task: dict, job: dict) -> None:
-    """熱門討論 v2：
-    - 候選用 PTT 原生 recommend: 搜尋（快板如八卦板的熱文會沉到深頁，掃最新頁抓不到）
-    - Re:/Fw: 同主題聚合成討論串，取最高推那篇當代表
-    - 前 max_detail 篇進文章頁統計總留言數，算「衝火速度」＝留言數/(小時+2)^1.6
-    - 分類＝看板主題（hot_cats），與省錢優惠的通路標籤是兩套
+    """熱門討論 v4 —— 完整複製 moptt 的機制（2026-08-23 實證研究，見 docs/moptt_algorithm.md）：
+    1. 收錄制：文章熱度信號越過「板級門檻」→ 記下 accepted_at，之後留在 feed 不重算
+       （moptt 的信號是自家 App 點擊量 hits，外部不可得；我們用總留言數當最接近的公開代理）
+    2. Feed 排序：accepted_at 收錄時間新→舊（moptt 120 筆實測嚴格全序遞減）
+    3. 舊文回鍋：只看信號當下值、不看發文時間（moptt 有 2015 年舊文被今日收錄）
+    4. 板級門檻與板活躍度成正比（moptt 八卦收錄線 ≈376 hits、媽佛 ≈11）
+    5. 無每板頁面限額（實測八卦可佔一頁 11-15/20）
+    收錄登記簿的持久化：本機走 track 快取；線上由 build_site 把上一版已部署結果傳入 prev_results。
     """
     try:
         client = PTTClient(delay=float(task.get("delay", 0.4)))
         board = (task.get("board") or "").strip()
-        # H4：PTT 對 recommend:0 / 負值會直接忽略條件，server 端夾住下限並在收集時複驗
-        min_push = max(1, int(task.get("min_push", 30)))
-        days = int(task.get("days") or 0)
-        max_detail = int(task.get("max_detail", 40))
+        days = max(1, int(task.get("days") or 10))       # feed 保留天數（依 accepted_at）
+        max_detail = int(task.get("max_detail", 40))     # 每輪最多驗證幾篇新候選
         search_pages = max(1, int(task.get("search_pages", 2)))
-        today = now_tw()
+        now = now_tw()
+        now_epoch = now.replace(tzinfo=TAIPEI).timestamp()
+
+        # 收錄登記簿：上一版結果（線上：build_site 傳入；本機：track 快取）
+        prev = task.get("prev_results")
+        if prev is None:
+            with _jobs_lock:
+                tid = job.get("track_id") or ""
+            prev = ((read_cache(tid) or {}).get("results") if tid else None) or []
+        registry: dict[str, dict] = {}
+        for r in prev:
+            if isinstance(r, dict) and r.get("url"):
+                rr = dict(r)
+                rr.pop("new", None)
+                # 舊格式沒有 accepted_at：用其 ts 當初始收錄時間，之後隨每輪自我修正
+                rr.setdefault("accepted_at", rr.get("ts") or now_epoch)
+                registry[rr["url"]] = rr
 
         nuser_map: dict[str, int] = {}
+        try:
+            hot = client.hotboards(top=100)
+            nuser_map = {b["board"]: b["nuser"] for b in hot}
+        except Exception:
+            hot = []
         if board:
             boards = [board]
-            note = f"{board} 板熱門文章（推文數 ≥ {min_push}，爆=100）"
+            note = f"{board} 板熱門"
         else:
-            job_log(job, "抓取 PTT 即時熱門看板排行")
-            hot = client.hotboards(top=100)
-            if not hot:
-                raise RuntimeError("抓不到熱門看板排行。")
-            nuser_map = {b["board"]: b["nuser"] for b in hot}
             custom = [str(b).strip() for b in (task.get("boards") or []) if str(b).strip()]
             if custom:
                 boards = custom
                 note = f"自選 {len(boards)} 板"
             else:
+                if not hot:
+                    raise RuntimeError("抓不到熱門看板排行。")
                 boards = [b["board"] for b in hot[:int(task.get("hot_boards", 10))]]
                 note = f"全站人氣前 {len(boards)} 板"
             job_log(job, f"看板：{'、'.join(boards)}")
-            note += f"，門檻依板人氣分級（大板 ≥{min_push} 推、中板減半、小板 1/3）"
 
-        def board_threshold(b: str) -> int:
-            """moptt 式的板級相對門檻：小板低門檻，才不會被大板洗掉。"""
+        def comment_threshold(b: str) -> int:
+            """板級收錄門檻（總留言數）：與板活躍度成正比——moptt 板級門檻的精神。"""
             n = nuser_map.get(b)
-            if board or n is None or n >= 1500:
-                return min_push
+            if n is None:
+                return 50
+            if n >= 5000:
+                return 150
+            if n >= 1500:
+                return 100
             if n >= 400:
-                return max(10, min_push // 2)
-            return max(10, min_push // 3)
+                return 50
+            return 25
 
-        # 候選收集：recommend 搜尋
+        # 探索：recommend 搜尋當預過濾（recommend 搜全板歷史、不限最新頁 → 舊文回鍋自然發生）
         candidates: list[dict] = []
         seen: set[str] = set()
         ok_boards = 0
@@ -747,38 +767,33 @@ def run_hot(task: dict, job: dict) -> None:
                 raise InterruptedError
             with _jobs_lock:
                 job["progress"] = {"done": i, "total": len(boards)}
-            threshold = board_threshold(b)
-            job_log(job, f"搜尋 {b} 推文數 ≥ {threshold} 的文章")
+            thr = comment_threshold(b)
+            disc = max(10, min(50, thr // 3))  # 總留言≈3×淨推的粗略換算，寧可多撈進驗證
+            job_log(job, f"探索 {b}（recommend:{disc}；收錄門檻＝{thr} 則留言）")
             try:
-                items = client.search(b, f"recommend:{threshold}",
+                items = client.search(b, f"recommend:{disc}",
                                       max_pages=search_pages, max_posts=60)
                 ok_boards += 1
             except Exception as exc:
-                job_log(job, f"搜尋 {b} 失敗：{exc}")
+                job_log(job, f"探索 {b} 失敗：{exc}")
                 continue
             for it in items:
-                if it.url in seen:
-                    continue
+                if it.url in seen or it.url in registry:
+                    continue  # 已收錄者統計凍結、不重抓（moptt 收錄後 feed 位置固定）
                 seen.add(it.url)
-                if push_score(it.push) < threshold:  # 不信任 PTT 一定有套用 recommend 條件
-                    continue
-                dt = parse_list_date(it.date_text, today)
-                if days and dt and (today - dt).days > days:
+                if push_score(it.push) < disc:
                     continue
                 candidates.append({
-                    "title": it.title,
-                    "author": it.author,
-                    "date": f"{dt:%Y-%m-%d}" if dt else (it.date_text or "").strip(),
-                    "url": it.url,
-                    "push": it.push,
-                    "score": push_score(it.push),
-                    "board": b,
+                    "title": it.title, "author": it.author,
+                    "date": (it.date_text or "").strip(),
+                    "url": it.url, "push": it.push,
+                    "score": push_score(it.push), "board": b,
                 })
 
         if ok_boards == 0:
             raise RuntimeError("所有看板都掃描失敗，請確認網路或板名。")
 
-        # 討論串聚合：同板同主題取最高推那篇當代表（key 帶板名，跨板同名文不誤併）
+        # 討論串聚合（同板同主題取最高推當代表）
         threads: dict[str, list[dict]] = {}
         for c in candidates:
             threads.setdefault(f"{c['board']}|{_thread_key(c['title'])}", []).append(c)
@@ -787,49 +802,35 @@ def run_hot(task: dict, job: dict) -> None:
             rep = max(group, key=lambda c: c["score"])
             rep["thread"] = len(group)
             reps.append(rep)
-        # moptt 式公平入選：各板輪流取名額（板內依推文數排），小板不會被大板爆文擠光
-        by_board: dict[str, list[dict]] = {}
-        for c in reps:
-            by_board.setdefault(c["board"], []).append(c)
-        for lst in by_board.values():
-            lst.sort(key=lambda c: c["score"], reverse=True)
-        detail: list[dict] = []
-        queues = list(by_board.values())
-        while len(detail) < max_detail and any(queues):
-            for lst in queues:
-                if lst and len(detail) < max_detail:
-                    detail.append(lst.pop(0))
-        job_log(job, f"候選 {len(candidates)} 篇／{len(reps)} 個討論串，讀取前 {len(detail)} 篇留言統計")
+        reps.sort(key=lambda c: c["score"], reverse=True)
+        probe = reps[:max_detail]
+        job_log(job, f"新候選 {len(reps)} 串，驗證前 {len(probe)} 篇留言數是否過收錄門檻")
 
-        results: list[dict] = []
-        now = now_tw()
-        fetch_fail = 0
+        # 收錄驗證：實際讀文章數總留言，過板級門檻才收錄（accepted_at＝現在）
+        accepted_new: list[dict] = []
         dt_fail = 0
-        for i, c in enumerate(detail, 1):
+        for i, c in enumerate(probe, 1):
             if job["cancel"]:
                 raise InterruptedError
             with _jobs_lock:
-                job["progress"] = {"done": i, "total": len(detail)}
+                job["progress"] = {"done": i, "total": len(probe)}
             try:
                 art = client.article(c["url"])
             except Exception as exc:
-                # H2：讀取失敗仍保留該篇（無留言統計），不讓熱文無聲消失
-                job_log(job, f"讀取失敗（保留無統計）：{c['title'][:30]}（{exc}）")
-                fetch_fail += 1
-                results.append({**c, "matched": [], "preview": "",
-                                "cats": hot_cats(c["board"]), "rising": 0.0})
+                job_log(job, f"讀取失敗：{c['title'][:30]}（{exc}）")
                 continue
             ps = art.push_summary or {}
             comments = int(ps.get("total", 0))
+            if comments < comment_threshold(c["board"]):
+                continue  # 未過門檻不收錄；之後留言變多自然會在下一輪過線（持續觀測）
             dt = _parse_article_dt(art.date_text)
             if dt is None:
                 dt_fail += 1
             age_h = max((now - dt).total_seconds() / 3600.0, 0.1) if dt else None
-            # 反正已經進過文章頁，順手帶出內文摘要（零額外請求）
             preview = re.sub(r"\n{3,}", "\n\n", art.body).strip()
             if len(preview) > 900:
                 preview = preview[:900].rstrip() + "\n……（已截短，請開原文）"
-            results.append({
+            accepted_new.append({
                 **c,
                 "date": f"{dt:%m-%d %H:%M}" if dt else c["date"],
                 "matched": [],
@@ -840,18 +841,30 @@ def run_hot(task: dict, job: dict) -> None:
                 "boo": ps.get("噓", 0),
                 "per_hour": round(comments / age_h, 1) if age_h else None,
                 "rising": round(comments / ((age_h + 2) ** 1.6), 2) if age_h else 0.0,
-                # 真 epoch（帶台灣時區），前端可安全與 Date.now() 比較（天數篩選/相對時間）
-                "ts": dt.replace(tzinfo=TAIPEI).timestamp() if dt else None,
+                "accepted_at": now_epoch,
+                # ts＝收錄時間（真 epoch）：天數篩選與「最新熱門」排序都以「何時變熱」為準
+                "ts": now_epoch,
             })
 
-        # H3 哨兵：時間解析大量失敗時排序等於壞掉，要出聲不能靜默
-        if results and dt_fail > len(results) / 2:
-            job_log(job, f"警告：{dt_fail}/{len(results)} 篇文章時間解析失敗，衝火速度排序可能失效")
-        results.sort(key=lambda r: r.get("rising") or 0, reverse=True)
-        note += "；預設依衝火速度排序（留言數÷時間衰減），可切換總留言數"
-        if fetch_fail:
-            note += f"；{fetch_fail} 篇未取得留言統計"
-        job_log(job, f"完成：{len(results)} 篇（含留言統計）")
+        if accepted_new and dt_fail > len(accepted_new) / 2:
+            job_log(job, f"警告：{dt_fail} 篇文章時間解析失敗")
+
+        # 舊收錄沿用（feed 保留 days 天，統計凍結）＋總量上限
+        scan_specific = bool(board) or bool(task.get("boards"))
+        board_set = set(boards)
+        cutoff = now_epoch - days * 86400
+        carried = [r for r in registry.values()
+                   if (r.get("accepted_at") or 0) >= cutoff
+                   and (not scan_specific or r.get("board") in board_set)]
+        for r in carried:
+            r["ts"] = r.get("accepted_at")
+        results = accepted_new + carried
+        results.sort(key=lambda r: r.get("accepted_at") or 0, reverse=True)
+        results = results[:200]
+
+        note += (f"，moptt 式收錄制（過板級留言門檻即收錄、依收錄時間排序、保留 {days} 天）；"
+                 f"本輪新收錄 {len(accepted_new)} 篇、沿用 {len(carried)} 篇")
+        job_log(job, f"完成：feed 共 {len(results)} 篇（新收錄 {len(accepted_new)}／沿用 {len(carried)}）")
         with _jobs_lock:
             job["results"] = results
             job["note"] = note

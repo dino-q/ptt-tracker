@@ -416,16 +416,12 @@
           <input id="f-h-board" list="board-list" placeholder="留空＝全站，或如：Gossiping、NBA、movie">
         </div>
         <div class="field">
-          <label for="f-h-minpush">推文數門檻（爆＝100）</label>
-          <input id="f-h-minpush" type="number" min="1" max="100" value="30">
-        </div>
-        <div class="field">
           <label for="f-h-boards">全站模式掃前幾個人氣板</label>
           <input id="f-h-boards" type="number" min="1" max="20" value="10">
         </div>
         <div class="field">
-          <label for="f-h-days">只看最近幾天</label>
-          <input id="f-h-days" type="number" min="1" max="30" value="2">
+          <label for="f-h-days">feed 保留天數（依收錄時間）</label>
+          <input id="f-h-days" type="number" min="1" max="30" value="10">
         </div>
       </div>
       <div class="row-actions">
@@ -534,9 +530,9 @@
         </span>
         <span class="tabs" id="sort-toggle" style="display:none; margin-bottom:0">
           <span class="sort-label">排序</span>
-          <button class="tab active" data-sort="rising">正在起飛</button>
+          <button class="tab active" data-sort="time">最新熱門</button>
+          <button class="tab" data-sort="rising">正在起飛</button>
           <button class="tab" data-sort="comments">總留言數</button>
-          <button class="tab" data-sort="time">最新</button>
         </span>
         <label class="sr-only" for="filter-box">在結果中再過濾</label>
         <input id="filter-box" placeholder="在結果中再過濾（標題/作者/看板/內文）">
@@ -569,7 +565,7 @@ let POLL = null;
 let POLL_FAILS = 0;
 let VIEW = "money";
 let ACTIVE_CAT = "全部";
-let SORT = "rising";       // 熱門結果排序：rising 衝火速度 / comments 總留言數
+let SORT = "time";         // 熱門排序：time 最新熱門(moptt feed 序) / rising 衝火 / comments 總留言
 let DAYS = 3;              // 天數篩選（爬取存 10 天超集，看幾天由這裡決定）
 let CURRENT_LIST = [];     // 目前顯示中的（分類＋文字過濾後）清單，下載全文以此為準
 
@@ -594,6 +590,12 @@ function saveBoardExcl() {
 let BOARD_EXCL = loadBoardExcl();
 const boardShown = r => !r.board || !BOARD_EXCL.has(r.board);
 
+// 看板膠囊預設收折（Dino：控制項列太多），展開狀態記瀏覽器
+function loadBFOpen() {
+  try { return localStorage.getItem("ptt_board_filter_open") === "1"; } catch (e) { return false; }
+}
+let BF_OPEN = loadBFOpen();
+
 function renderBoardFilter(results) {
   const box = $("board-filter");
   box.innerHTML = "";
@@ -601,23 +603,34 @@ function renderBoardFilter(results) {
   for (const r of results) if (r.board) counts[r.board] = (counts[r.board] || 0) + 1;
   const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   if (names.length < 2) { box.style.display = "none"; return; }
-  const label = document.createElement("span");
-  label.className = "sort-label";
-  label.textContent = "看板（點擊顯示/隱藏）";
-  box.appendChild(label);
-  for (const n of names) {
-    const b = document.createElement("button");
-    const shown = !BOARD_EXCL.has(n);
-    b.className = "tab" + (shown ? " active" : "");
-    b.textContent = `${n} ${counts[n]}`;
-    b.title = shown ? "點擊隱藏這個看板" : "點擊恢復顯示";
-    b.addEventListener("click", () => {
-      if (BOARD_EXCL.has(n)) BOARD_EXCL.delete(n); else BOARD_EXCL.add(n);
-      saveBoardExcl();
-      renderTabs();
-      applyFilters();
-    });
-    box.appendChild(b);
+
+  const toggle = document.createElement("button");
+  toggle.className = "tab bf-toggle";
+  const hidden = names.filter(n => BOARD_EXCL.has(n)).length;
+  toggle.textContent = `看板篩選（${names.length} 板${hidden ? `，隱藏 ${hidden}` : ""}）${BF_OPEN ? " ▲" : " ▼"}`;
+  toggle.setAttribute("aria-expanded", BF_OPEN ? "true" : "false");
+  toggle.addEventListener("click", () => {
+    BF_OPEN = !BF_OPEN;
+    try { localStorage.setItem("ptt_board_filter_open", BF_OPEN ? "1" : "0"); } catch (e) {}
+    renderBoardFilter(results);
+  });
+  box.appendChild(toggle);
+
+  if (BF_OPEN) {
+    for (const n of names) {
+      const b = document.createElement("button");
+      const shown = !BOARD_EXCL.has(n);
+      b.className = "tab" + (shown ? " active" : "");
+      b.textContent = `${n} ${counts[n]}`;
+      b.title = shown ? "點擊隱藏這個看板" : "點擊恢復顯示";
+      b.addEventListener("click", () => {
+        if (BOARD_EXCL.has(n)) BOARD_EXCL.delete(n); else BOARD_EXCL.add(n);
+        saveBoardExcl();
+        renderTabs();
+        applyFilters();
+      });
+      box.appendChild(b);
+    }
   }
   box.style.display = "flex";
 }
@@ -662,7 +675,7 @@ function switchView(v) {
   document.querySelectorAll(".viewbtn").forEach(b => b.classList.toggle("active", b.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === "view-" + v));
   ACTIVE_CAT = "全部";
-  SORT = "rising";
+  SORT = "time";
   DAYS = 3;
   document.querySelectorAll("#day-filter .tab").forEach(t =>
     t.classList.toggle("active", t.dataset.days === "3"));
@@ -712,11 +725,10 @@ function hotTask() {
     intent: "hot",
     board: parts.length === 1 ? parts[0] : "",
     boards: parts.length > 1 ? parts : [],
-    min_push: intVal("f-h-minpush", 1, 100, 30),
     hot_boards: intVal("f-h-boards", 1, 20, 10),
     search_pages: parts.length === 1 ? 3 : 2,
     max_detail: 40,
-    days: intVal("f-h-days", 1, 30, 2),
+    days: intVal("f-h-days", 1, 30, 10),
   };
 }
 
@@ -861,7 +873,7 @@ $("btn-m-weekend").addEventListener("click", () => {
 $("btn-h-run").addEventListener("click", () => {
   const t = hotTask();
   // 只有「全站、預設條件」的結果才回寫每日快取，避免單板/自選板掃描汙染全站快取
-  const isDefault = !t.board && !t.boards.length && t.min_push === 30 && t.hot_boards === 10;
+  const isDefault = !t.board && !t.boards.length && t.hot_boards === 10;
   const name = t.board ? `${t.board} 板熱門文章`
     : t.boards.length ? `自選 ${t.boards.length} 板熱門` : "PTT 全站熱門討論";
   runTask(t, isDefault ? "hot-now" : null, "hot", name);
@@ -890,9 +902,8 @@ $("btn-parse").addEventListener("click", async () => {
       switchView("author");
     } else if (t.intent === "hot") {
       $("f-h-board").value = t.board || "";
-      $("f-h-minpush").value = t.min_push ?? 50;
       $("f-h-boards").value = t.hot_boards ?? 10;
-      $("f-h-days").value = t.days ?? 2;
+      $("f-h-days").value = t.days ?? 10;
       switchView("hot");
     } else if (t.board === "Lifeismoney" && t.weekend) {
       // 省錢版週末優惠：導向省錢頁，直接用解析出的完整條件跑
@@ -1002,10 +1013,6 @@ function renderTabs() {
   const data = VIEW_DATA[VIEW];
   const all = data ? data.results : [];
   $("day-filter").style.display = all.some(r => r.ts) ? "flex" : "none";
-  // 熱門資料視窗只有 3 天，5/10 天選項在熱門頁是無效操作，藏起來
-  document.querySelectorAll("#day-filter .tab").forEach(t => {
-    t.style.display = (VIEW === "hot" && parseInt(t.dataset.days, 10) > 3) ? "none" : "";
-  });
   // 置頂項永遠顯示，計數也要算進去，否則「全部 N」跟「共 M 篇」對不上
   const dayBase = all.filter(r => PINS.has(r.url) || dayOk(r));
   renderBoardFilter(dayBase);  // 看板 chips 含被隱藏的板（要留著讓使用者點回來）

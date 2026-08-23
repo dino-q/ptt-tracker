@@ -36,7 +36,7 @@
 | `parse_request(text)` | 白話 → 結構化 task（意圖 scan/author_export/hot＋板名/關鍵字/天數） | UI 會顯示解析結果讓使用者修正後才執行 |
 | `run_task(task, job)` | scan 意圖：搜尋＋最新頁 → 去重 → 日期過濾 → 關鍵字組判定（必要時讀內文）→ 結果 | |
 | `run_author_export(task, job)` | author_export 意圖：♻️ 調用 export_author_creations＋進度/取消 | 🆕 2026-08-22 |
-| `run_hot(task, job)` | hot 意圖 v2：recommend: 搜尋候選（快板熱文不漏）→ Re: 討論串聚合 → 前 40 篇讀留言統計 → 衝火速度排序（留言÷(時+2)^1.6） | 2026-08-22 v2 |
+| `run_hot(task, job)` | hot 意圖 v4：moptt 式收錄制（板級留言門檻→accepted_at→feed 依收錄時間排、舊文回鍋、收錄後凍結、保留10天）；設計依據見 docs/moptt_algorithm.md | 2026-08-23 v4 |
 | `hot_cats(board)` / `HOT_BOARD_CATEGORY` | 熱門文分類＝看板主題（八卦時事/棒球…），未知板用板名；config `hot_board_categories` 可覆蓋 | 🆕 與省錢的通路標籤是兩套 |
 | `_parse_article_dt` / `_thread_key` | 文章時間解析／討論串聚合鍵 | 🆕 |
 | `run_download(task, job)` | download 意圖：指定 urls 逐篇抓全文（可含留言）合併 TXT，job.file 給下載端點 | 🆕 2026-08-22 |

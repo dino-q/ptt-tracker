@@ -81,18 +81,24 @@ def main() -> None:
         assert nums and nums == sorted(nums, reverse=True), f"總留言排序應遞減：{nums[:6]}"
         print("PASS 排序切換：總留言數遞減")
 
-        # 3b) 看板自選：隱藏第一個看板 chip → 該板卡片消失，再點回還原
-        expect(page.locator("#board-filter")).to_be_visible()
-        first_chip = page.locator("#board-filter .tab").first
+        # 3b) 看板自選（預設收折）：展開 → 隱藏第一板 → 卡片消失 → 還原 → 收折
+        expect(page.locator("#board-filter .bf-toggle")).to_be_visible()
+        chips = page.locator("#board-filter .tab:not(.bf-toggle)")
+        assert chips.count() == 0, "看板膠囊應預設收折"
+        page.locator("#board-filter .bf-toggle").click()
+        assert chips.count() >= 2, "展開後應看到看板膠囊"
+        first_chip = chips.first
         chip_board = first_chip.inner_text().rsplit(" ", 1)[0]
         n_before = page.locator("#items .item").count()
         first_chip.click()
         metas_after = page.locator("#items .item .meta").all_inner_texts()
         assert not any(chip_board + " 板" in m for m in metas_after), f"{chip_board} 應被隱藏"
         assert page.locator("#items .item").count() < n_before
-        page.locator("#board-filter .tab", has_text=chip_board).first.click()
+        page.locator("#board-filter .tab:not(.bf-toggle)", has_text=chip_board).first.click()
         assert page.locator("#items .item").count() == n_before
-        print(f"PASS 看板自選：{chip_board} 隱藏→還原（{n_before} 篇）")
+        page.locator("#board-filter .bf-toggle").click()
+        assert chips.count() == 0, "再點應收折"
+        print(f"PASS 看板自選收折：展開→{chip_board} 隱藏→還原→收折（{n_before} 篇）")
         # 回省錢頁排序切換要隱藏
         page.locator('.viewbtn[data-view="money"]').click()
         expect(page.locator("#sort-toggle")).to_be_hidden()

@@ -95,8 +95,12 @@ def main() -> None:
     }, ensure_ascii=False), encoding="utf-8")
     print(f"money.json：{len(money['results'])} 篇")
 
-    hot = run(run_hot, dict(tracks["hot-now"]["task"]))
-    mark_new_results(hot["results"], (fetch_old("hot") or {}).get("results"))
+    old_hot = fetch_old("hot")
+    hot_task = dict(tracks["hot-now"]["task"])
+    # moptt 式收錄登記簿：把上一版已部署結果傳入，收錄時間才能跨輪持久
+    hot_task["prev_results"] = (old_hot or {}).get("results") or []
+    hot = run(run_hot, hot_task)
+    mark_new_results(hot["results"], (old_hot or {}).get("results"))
     # 哨兵：時間計算壞掉時寧可讓 Action 紅燈，不要安靜發佈壞資料（2026-08-22 UTC 時區事故的教訓）
     stats = [r for r in hot["results"] if r.get("comments") is not None]
     if hot["results"] and not stats:

@@ -207,9 +207,9 @@
       </span>
       <span class="tabs" id="sort-toggle" style="display:none; margin-bottom:0">
         <span class="sort-label">排序</span>
-        <button class="tab active" data-sort="rising">正在起飛</button>
+        <button class="tab active" data-sort="time">最新熱門</button>
+        <button class="tab" data-sort="rising">正在起飛</button>
         <button class="tab" data-sort="comments">總留言數</button>
-        <button class="tab" data-sort="time">最新</button>
       </span>
       <label class="sr-only" for="filter-box">在結果中過濾</label>
       <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
@@ -229,7 +229,7 @@ const $ = (id) => document.getElementById(id);
 const DATA = { money: null, hot: null };
 let VIEW = "money";
 let ACTIVE_CAT = "全部";
-let SORT = "rising";
+let SORT = "time";   // 最新熱門＝moptt 收錄時間 feed 序
 let DAYS = 3;
 
 function loadPins() {
@@ -252,6 +252,12 @@ function saveBoardExcl() {
 let BOARD_EXCL = loadBoardExcl();
 const boardShown = r => !r.board || !BOARD_EXCL.has(r.board);
 
+// 看板膠囊預設收折（控制項列太多），展開狀態記瀏覽器
+function loadBFOpen() {
+  try { return localStorage.getItem("ptt_board_filter_open") === "1"; } catch (e) { return false; }
+}
+let BF_OPEN = loadBFOpen();
+
 function renderBoardFilter(results) {
   const box = $("board-filter");
   box.innerHTML = "";
@@ -259,23 +265,34 @@ function renderBoardFilter(results) {
   for (const r of results) if (r.board) counts[r.board] = (counts[r.board] || 0) + 1;
   const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   if (names.length < 2) { box.style.display = "none"; return; }
-  const label = document.createElement("span");
-  label.className = "sort-label";
-  label.textContent = "看板（點擊顯示/隱藏）";
-  box.appendChild(label);
-  for (const n of names) {
-    const b = document.createElement("button");
-    const shown = !BOARD_EXCL.has(n);
-    b.className = "tab" + (shown ? " active" : "");
-    b.textContent = `${n} ${counts[n]}`;
-    b.title = shown ? "點擊隱藏這個看板" : "點擊恢復顯示";
-    b.addEventListener("click", () => {
-      if (BOARD_EXCL.has(n)) BOARD_EXCL.delete(n); else BOARD_EXCL.add(n);
-      saveBoardExcl();
-      const d = DATA[VIEW];
-      if (d) { renderTabs(d); applyFilters(d); }
-    });
-    box.appendChild(b);
+
+  const toggle = document.createElement("button");
+  toggle.className = "tab bf-toggle";
+  const hidden = names.filter(n => BOARD_EXCL.has(n)).length;
+  toggle.textContent = `看板篩選（${names.length} 板${hidden ? `，隱藏 ${hidden}` : ""}）${BF_OPEN ? " ▲" : " ▼"}`;
+  toggle.setAttribute("aria-expanded", BF_OPEN ? "true" : "false");
+  toggle.addEventListener("click", () => {
+    BF_OPEN = !BF_OPEN;
+    try { localStorage.setItem("ptt_board_filter_open", BF_OPEN ? "1" : "0"); } catch (e) {}
+    renderBoardFilter(results);
+  });
+  box.appendChild(toggle);
+
+  if (BF_OPEN) {
+    for (const n of names) {
+      const b = document.createElement("button");
+      const shown = !BOARD_EXCL.has(n);
+      b.className = "tab" + (shown ? " active" : "");
+      b.textContent = `${n} ${counts[n]}`;
+      b.title = shown ? "點擊隱藏這個看板" : "點擊恢復顯示";
+      b.addEventListener("click", () => {
+        if (BOARD_EXCL.has(n)) BOARD_EXCL.delete(n); else BOARD_EXCL.add(n);
+        saveBoardExcl();
+        const d = DATA[VIEW];
+        if (d) { renderTabs(d); applyFilters(d); }
+      });
+      box.appendChild(b);
+    }
   }
   box.style.display = "flex";
 }
@@ -310,10 +327,6 @@ function renderTabs(d) {
   const box = $("cat-tabs");
   box.innerHTML = "";
   $("day-filter").style.display = d.results.some(r => r.ts) ? "flex" : "none";
-  // 熱門資料視窗只有 3 天，5/10 天選項在熱門頁藏起來
-  document.querySelectorAll("#day-filter .tab").forEach(t => {
-    t.style.display = (VIEW === "hot" && parseInt(t.dataset.days, 10) > 3) ? "none" : "";
-  });
   // 置頂項永遠顯示，計數也算進去
   const dayBase = d.results.filter(r => PINS.has(r.url) || dayOk(r));
   renderBoardFilter(dayBase);  // 看板 chips 含被隱藏的板（要留著讓使用者點回來）
@@ -499,7 +512,7 @@ document.querySelectorAll("#day-filter .tab").forEach(t =>
 document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", async () => {
   VIEW = b.dataset.view;
   ACTIVE_CAT = "全部";
-  SORT = "rising";
+  SORT = "time";
   DAYS = 3;
   document.querySelectorAll("#day-filter .tab").forEach(x =>
     x.classList.toggle("active", x.dataset.days === "3"));
