@@ -106,6 +106,14 @@
     background: var(--color-surface); border-color: transparent; color: var(--color-ink); font-weight: 600; box-shadow: var(--shadow-whisper);
   }
   #day-filter + #sort-toggle { margin-left: var(--space-1); }
+  /* 篩選面板：次要控制項集中在此，預設收合 */
+  #filter-btn { min-height: 40px; padding: 8px var(--space-4); font-size: .88rem; white-space: nowrap; }
+  #filter-btn.has-active { border-color: var(--color-accent); color: var(--color-accent); }
+  #filter-panel {
+    flex-direction: column; align-items: flex-start; gap: var(--space-3);
+    margin-top: var(--space-3); padding-top: var(--space-3);
+    border-top: 1px dashed var(--color-line);
+  }
 
   #head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-top: var(--space-3); }
   #count { font-size: .88rem; color: var(--color-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -230,11 +238,15 @@
   <div class="results-toolbar">
     <div id="note" class="note" style="display:none"></div>
     <div class="filter-groups">
-      <div class="tabs" id="board-filter" style="display:none"></div>
       <div class="tabs" id="cat-tabs" style="display:none"></div>
     </div>
     <div id="head">
       <span id="count"></span>
+      <label class="sr-only" for="filter-box">在結果中過濾</label>
+      <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
+      <button class="tab" id="filter-btn" aria-expanded="false" aria-controls="filter-panel">篩選 ▾</button>
+    </div>
+    <div id="filter-panel" style="display:none">
       <span class="tabs" id="mode-toggle" style="display:none; margin-bottom:0">
         <button class="tab active" data-mode="recent">近期熱門</button>
         <button class="tab" data-mode="all">含回鍋（不分期間）</button>
@@ -252,8 +264,7 @@
         <button class="tab" data-sort="rising">正在起飛</button>
         <button class="tab" data-sort="comments">總留言數</button>
       </span>
-      <label class="sr-only" for="filter-box">在結果中過濾</label>
-      <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
+      <div class="tabs" id="board-filter" style="display:none"></div>
     </div>
   </div>
   <div id="items"><p class="empty">載入中…</p></div>
@@ -295,7 +306,8 @@ const boardShown = r => !r.board || !BOARD_EXCL.has(r.board);
 
 // 看板膠囊預設收折（控制項列太多），展開狀態記瀏覽器
 function loadBFOpen() {
-  try { return localStorage.getItem("ptt_board_filter_open") === "1"; } catch (e) { return false; }
+  // 篩選面板本身就是收合層，看板膠囊在面板內預設展開
+  try { return localStorage.getItem("ptt_board_filter_open") !== "0"; } catch (e) { return true; }
 }
 let BF_OPEN = loadBFOpen();
 
@@ -344,6 +356,22 @@ function loadHotMode() {
   catch (e) { return "recent"; }
 }
 let HOTMODE = loadHotMode();
+
+// 篩選面板開合＋按鈕摘要
+let FILTER_OPEN = false;
+function updateFilterBtn() {
+  const parts = [];
+  const d = DATA[VIEW];
+  const isHot = !!(d && d.results.some(r => r.accepted_at !== undefined));
+  if (DAYS !== 3 && !(isHot && HOTMODE === "all")) parts.push(`${DAYS}天`);
+  if (isHot && HOTMODE === "all") parts.push("含回鍋");
+  if (isHot && SORT !== "time") parts.push(SORT === "rising" ? "正在起飛" : "總留言數");
+  if (isHot && BOARD_EXCL.size) parts.push(`隱藏${BOARD_EXCL.size}板`);
+  const btn = $("filter-btn");
+  btn.textContent = (parts.length ? `篩選（${parts.join("・")}）` : "篩選") + (FILTER_OPEN ? " ▴" : " ▾");
+  btn.classList.toggle("has-active", parts.length > 0);
+  btn.setAttribute("aria-expanded", FILTER_OPEN ? "true" : "false");
+}
 
 function hotPostTs(r) {
   if (r.post_ts) return r.post_ts * 1000;
@@ -445,6 +473,7 @@ function applyFilters(d) {
       t.classList.toggle("active", t.dataset.sort === SORT));
   }
   list = [...pinned, ...list];
+  updateFilterBtn();
   $("count").textContent = `共 ${list.length} 篇`;
   const box = $("items");
   box.innerHTML = "";
@@ -658,6 +687,11 @@ document.querySelectorAll("#mode-toggle .tab").forEach(t =>
     const d = DATA[VIEW];
     if (d) { renderTabs(d); applyFilters(d); }
   }));
+$("filter-btn").addEventListener("click", () => {
+  FILTER_OPEN = !FILTER_OPEN;
+  $("filter-panel").style.display = FILTER_OPEN ? "flex" : "none";
+  updateFilterBtn();
+});
 document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", async () => {
   VIEW = b.dataset.view;
   ACTIVE_CAT = "全部";

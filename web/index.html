@@ -264,10 +264,17 @@
     border: 1px solid var(--color-line); border-radius: var(--radius-sm);
     background: var(--color-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6f6a' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 10px center / 14px;
   }
-  /* 下載動作群組：跟左邊的「結果內過濾」用分隔線隔開，避免瀏覽用途與匯出用途混在同一排看不出分組 */
+  /* 篩選面板：次要控制項集中在此，預設收合——畫面平時只有分類＋搜尋＋一顆篩選鈕 */
+  #filter-btn { min-height: 40px; padding: 8px var(--space-4); font-size: .88rem; white-space: nowrap; }
+  #filter-btn.has-active { border-color: var(--color-accent); color: var(--color-accent); }
+  #filter-panel {
+    flex-direction: column; align-items: flex-start; gap: var(--space-3);
+    margin-top: var(--space-3); padding-top: var(--space-3);
+    border-top: 1px dashed var(--color-line);
+  }
+  /* 下載動作群組（在篩選面板內） */
   .export-actions {
     display: flex; align-items: center; gap: var(--space-3);
-    margin-left: auto; padding-left: var(--space-4); border-left: 1px solid var(--color-line);
   }
   .note { background: var(--color-accent-soft); color: var(--color-ink); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
   #export-path:not(:empty) { margin-top: var(--space-3); }
@@ -549,11 +556,15 @@
       </div>
       <div id="note" class="note" style="display:none"></div>
       <div class="filter-groups">
-        <div class="tabs" id="board-filter" style="display:none"></div>
         <div class="tabs" id="cat-tabs" style="display:none"></div>
       </div>
       <div id="results-head">
         <span class="count" id="count"></span>
+        <label class="sr-only" for="filter-box">在結果中再過濾</label>
+        <input id="filter-box" placeholder="在結果中再過濾（標題/作者/看板/內文）">
+        <button class="ghost" id="filter-btn" aria-expanded="false" aria-controls="filter-panel">篩選 ▾</button>
+      </div>
+      <div id="filter-panel" style="display:none">
         <span class="tabs" id="mode-toggle" style="display:none; margin-bottom:0">
           <button class="tab active" data-mode="recent">近期熱門</button>
           <button class="tab" data-mode="all">含回鍋（不分期間）</button>
@@ -571,8 +582,7 @@
           <button class="tab" data-sort="rising">正在起飛</button>
           <button class="tab" data-sort="comments">總留言數</button>
         </span>
-        <label class="sr-only" for="filter-box">在結果中再過濾</label>
-        <input id="filter-box" placeholder="在結果中再過濾（標題/作者/看板/內文）">
+        <div class="tabs" id="board-filter" style="display:none"></div>
         <div class="export-actions">
           <label class="checkline"><input type="checkbox" id="dl-comments"> 含留言</label>
           <button class="ghost runbtn" id="btn-export">下載全文 TXT</button>
@@ -629,7 +639,8 @@ const boardShown = r => !r.board || !BOARD_EXCL.has(r.board);
 
 // 看板膠囊預設收折（Dino：控制項列太多），展開狀態記瀏覽器
 function loadBFOpen() {
-  try { return localStorage.getItem("ptt_board_filter_open") === "1"; } catch (e) { return false; }
+  // 篩選面板本身就是收合層，看板膠囊在面板內預設展開
+  try { return localStorage.getItem("ptt_board_filter_open") !== "0"; } catch (e) { return true; }
 }
 let BF_OPEN = loadBFOpen();
 
@@ -678,6 +689,22 @@ function loadHotMode() {
   catch (e) { return "recent"; }
 }
 let HOTMODE = loadHotMode();
+
+// 篩選面板：開合狀態（不持久化，每次載入預設收合）＋按鈕上的作用中設定摘要
+let FILTER_OPEN = false;
+function updateFilterBtn() {
+  const parts = [];
+  const data = VIEW_DATA[VIEW];
+  const isHot = !!(data && data.results.some(r => r.accepted_at !== undefined));
+  if (DAYS !== 3 && !(isHot && HOTMODE === "all")) parts.push(`${DAYS}天`);
+  if (isHot && HOTMODE === "all") parts.push("含回鍋");
+  if (isHot && SORT !== "time") parts.push(SORT === "rising" ? "正在起飛" : "總留言數");
+  if (isHot && BOARD_EXCL.size) parts.push(`隱藏${BOARD_EXCL.size}板`);
+  const btn = $("filter-btn");
+  btn.textContent = (parts.length ? `篩選（${parts.join("・")}）` : "篩選") + (FILTER_OPEN ? " ▴" : " ▾");
+  btn.classList.toggle("has-active", parts.length > 0);
+  btn.setAttribute("aria-expanded", FILTER_OPEN ? "true" : "false");
+}
 
 function hotPostTs(r) {
   // 發文時間 epoch：新資料有 post_ts；舊快取項從顯示日期 MM-DD HH:MM 推回（跨年往回推）
@@ -1135,6 +1162,7 @@ function applyFilters() {
       t.classList.toggle("active", t.dataset.sort === SORT));
   }
   renderItems([...pinned, ...list]);
+  updateFilterBtn();
 }
 document.querySelectorAll("#sort-toggle .tab").forEach(t =>
   t.addEventListener("click", () => { SORT = t.dataset.sort; applyFilters(); }));
@@ -1152,6 +1180,11 @@ document.querySelectorAll("#mode-toggle .tab").forEach(t =>
     renderTabs();
     applyFilters();
   }));
+$("filter-btn").addEventListener("click", () => {
+  FILTER_OPEN = !FILTER_OPEN;
+  $("filter-panel").style.display = FILTER_OPEN ? "flex" : "none";
+  updateFilterBtn();
+});
 $("filter-box").addEventListener("input", applyFilters);
 
 function renderItems(list) {

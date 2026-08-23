@@ -36,6 +36,11 @@ def main() -> None:
         assert page.locator("#items .item").count() == n_all
         print(f"PASS 分類頁籤：全部 {n_all} -> 四大超商 {n_store} -> 還原")
 
+        # 2b-0) 篩選面板：預設收合（畫面只有分類＋搜尋＋篩選鈕），開啟後才見次要控制項
+        expect(page.locator("#day-filter")).to_be_hidden()
+        page.locator("#filter-btn").click()
+        print("PASS 篩選面板：預設收合、點擊展開")
+
         # 2b) 天數篩選：預設 3 天，切 10 天筆數應增加、切 1 天應減少
         expect(page.locator("#day-filter")).to_be_visible()
         page.locator('#day-filter .tab[data-days="10"]').click()
@@ -93,12 +98,9 @@ def main() -> None:
         assert page.locator("#items .item").count() == n_recent
         print(f"PASS 熱門模式切換：近期 {n_recent} 篇 / 含回鍋 {n_all_mode} 篇")
 
-        # 3b) 看板自選（預設收折）：展開 → 隱藏第一板 → 卡片消失 → 還原 → 收折
-        expect(page.locator("#board-filter .bf-toggle")).to_be_visible()
+        # 3b) 看板自選（在篩選面板內預設展開）：隱藏第一板 → 卡片消失 → 還原
         chips = page.locator("#board-filter .tab:not(.bf-toggle)")
-        assert chips.count() == 0, "看板膠囊應預設收折"
-        page.locator("#board-filter .bf-toggle").click()
-        assert chips.count() >= 2, "展開後應看到看板膠囊"
+        assert chips.count() >= 2, "面板內看板膠囊應預設展開"
         first_chip = chips.first
         chip_board = first_chip.inner_text().rsplit(" ", 1)[0]
         n_before = page.locator("#items .item").count()
@@ -109,8 +111,9 @@ def main() -> None:
         page.locator("#board-filter .tab:not(.bf-toggle)", has_text=chip_board).first.click()
         assert page.locator("#items .item").count() == n_before
         page.locator("#board-filter .bf-toggle").click()
-        assert chips.count() == 0, "再點應收折"
-        print(f"PASS 看板自選收折：展開→{chip_board} 隱藏→還原→收折（{n_before} 篇）")
+        assert chips.count() == 0, "點膠囊列標題應可再收折"
+        page.locator("#board-filter .bf-toggle").click()
+        print(f"PASS 看板自選：{chip_board} 隱藏→還原；膠囊列可收折（{n_before} 篇）")
         # 回省錢頁排序切換要隱藏
         page.locator('.viewbtn[data-view="money"]').click()
         expect(page.locator("#sort-toggle")).to_be_hidden()
