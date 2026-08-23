@@ -894,8 +894,10 @@ def run_hot(task: dict, job: dict) -> None:
                 "per_hour": round(comments / age_h, 1) if age_h else None,
                 "rising": round(comments / ((age_h + 2) ** 1.6), 2) if age_h else 0.0,
                 "accepted_at": now_epoch,
-                # ts＝收錄時間（真 epoch）：天數篩選與「最新熱門」排序都以「何時變熱」為準
+                # ts＝收錄時間（真 epoch）：「含回鍋」模式與「最新熱門」排序以「何時變熱」為準
                 "ts": now_epoch,
+                # post_ts＝發文時間（真 epoch）：「近期熱門」模式的天數篩選基準
+                "post_ts": dt.replace(tzinfo=TAIPEI).timestamp() if dt else None,
             })
 
         if accepted_new and dt_fail > len(accepted_new) / 2:

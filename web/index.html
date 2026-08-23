@@ -554,6 +554,10 @@
       </div>
       <div id="results-head">
         <span class="count" id="count"></span>
+        <span class="tabs" id="mode-toggle" style="display:none; margin-bottom:0">
+          <button class="tab active" data-mode="recent">近期熱門</button>
+          <button class="tab" data-mode="all">含回鍋（不分期間）</button>
+        </span>
         <span class="tabs" id="day-filter" style="display:none; margin-bottom:0">
           <span class="sort-label">範圍</span>
           <button class="tab" data-days="1">1天</button>
@@ -668,13 +672,33 @@ function renderBoardFilter(results) {
   box.style.display = "flex";
 }
 
+// 熱門模式：recent＝近期熱門（天數看發文時間，排除回鍋舊文）／all＝含回鍋不分期間
+function loadHotMode() {
+  try { return localStorage.getItem("ptt_hot_mode") === "all" ? "all" : "recent"; }
+  catch (e) { return "recent"; }
+}
+let HOTMODE = loadHotMode();
+
+function hotPostTs(r) {
+  // 發文時間 epoch：新資料有 post_ts；舊快取項從顯示日期 MM-DD HH:MM 推回（跨年往回推）
+  if (r.post_ts) return r.post_ts * 1000;
+  const m = (r.date || "").match(/^(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const now = new Date();
+  let d = new Date(now.getFullYear(), +m[1] - 1, +m[2], +m[3], +m[4]);
+  if (d.getTime() > now.getTime() + 86400e3) d = new Date(now.getFullYear() - 1, +m[1] - 1, +m[2], +m[3], +m[4]);
+  return d.getTime();
+}
+
 function dayOk(r) {
-  // 日曆日語意：「3天」＝今天含前兩天（以午夜為界），跟列表顯示的日期直覺一致；
-  // 沒有 ts 的項（舊快取/無統計）保留不誤殺
-  if (!DAYS || !r.ts) return true;
+  const isHot = r.accepted_at !== undefined;
+  if (isHot && HOTMODE === "all") return true;  // 含回鍋：不分期間
+  // 基準：熱門近期模式看發文時間；其餘（省錢等）看 ts。沒有時間資訊的保留不誤殺
+  const basis = isHot ? hotPostTs(r) : (r.ts ? r.ts * 1000 : null);
+  if (!DAYS || basis === null) return true;
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
-  return r.ts * 1000 >= midnight.getTime() - (DAYS - 1) * 86400e3;
+  return basis >= midnight.getTime() - (DAYS - 1) * 86400e3;
 }
 function dayFiltered(results) { return results.filter(dayOk); }
 // 各功能頁各自的結果狀態：{results, note, name}
@@ -1045,7 +1069,13 @@ function renderTabs() {
   box.innerHTML = "";
   const data = VIEW_DATA[VIEW];
   const all = data ? data.results : [];
-  $("day-filter").style.display = all.some(r => r.ts) ? "flex" : "none";
+  const isHotData = all.some(r => r.accepted_at !== undefined);
+  $("mode-toggle").style.display = isHotData ? "flex" : "none";
+  document.querySelectorAll("#mode-toggle .tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.mode === HOTMODE));
+  // 含回鍋模式＝不分期間，天數列藏起來（避免掛著沒作用的控制項）
+  $("day-filter").style.display =
+    (all.some(r => r.ts) && !(isHotData && HOTMODE === "all")) ? "flex" : "none";
   // 置頂項永遠顯示，計數也要算進去，否則「全部 N」跟「共 M 篇」對不上
   const dayBase = all.filter(r => PINS.has(r.url) || dayOk(r));
   renderBoardFilter(dayBase);  // 看板 chips 含被隱藏的板（要留著讓使用者點回來）
@@ -1113,6 +1143,13 @@ document.querySelectorAll("#day-filter .tab").forEach(t =>
     DAYS = parseInt(t.dataset.days, 10);
     document.querySelectorAll("#day-filter .tab").forEach(x => x.classList.toggle("active", x === t));
     renderTabs();   // 分類頁籤的篇數要跟著天數視窗變
+    applyFilters();
+  }));
+document.querySelectorAll("#mode-toggle .tab").forEach(t =>
+  t.addEventListener("click", () => {
+    HOTMODE = t.dataset.mode === "all" ? "all" : "recent";
+    try { localStorage.setItem("ptt_hot_mode", HOTMODE); } catch (e) {}
+    renderTabs();
     applyFilters();
   }));
 $("filter-box").addEventListener("input", applyFilters);

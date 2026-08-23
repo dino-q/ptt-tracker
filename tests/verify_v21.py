@@ -81,6 +81,18 @@ def main() -> None:
         assert nums and nums == sorted(nums, reverse=True), f"總留言排序應遞減：{nums[:6]}"
         print("PASS 排序切換：總留言數遞減")
 
+        # 3a) 近期熱門/含回鍋模式切換：含回鍋篇數應 >=、天數列隨模式顯隱
+        expect(page.locator("#mode-toggle")).to_be_visible()
+        n_recent = page.locator("#items .item").count()
+        page.locator('#mode-toggle .tab[data-mode="all"]').click()
+        expect(page.locator("#day-filter")).to_be_hidden()
+        n_all_mode = page.locator("#items .item").count()
+        assert n_all_mode >= n_recent, (n_recent, n_all_mode)
+        page.locator('#mode-toggle .tab[data-mode="recent"]').click()
+        expect(page.locator("#day-filter")).to_be_visible()
+        assert page.locator("#items .item").count() == n_recent
+        print(f"PASS 熱門模式切換：近期 {n_recent} 篇 / 含回鍋 {n_all_mode} 篇")
+
         # 3b) 看板自選（預設收折）：展開 → 隱藏第一板 → 卡片消失 → 還原 → 收折
         expect(page.locator("#board-filter .bf-toggle")).to_be_visible()
         chips = page.locator("#board-filter .tab:not(.bf-toggle)")
