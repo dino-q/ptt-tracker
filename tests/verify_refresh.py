@@ -124,7 +124,9 @@ def main() -> None:
         page.wait_for_timeout(1200)
         assert alerts and "token 無效" in alerts[0], alerts
         assert page.evaluate("localStorage.getItem('ptt_gh_token')") is None
-        print("PASS ③ 401：token 清除、可重新設定")
+        assert page.locator("#refresh-btn").is_visible(), "token 清除後按鈕必須留著（R1：sticky）"
+        assert page.locator("#refresh-btn").is_enabled()
+        print("PASS ③ 401：token 清除、按鈕留著可重新設定")
         ctx.close()
 
         # ④ runs 輪詢 403（限流）：立即跳出、訊息正確、按鈕復原（不空轉到 deadline）
@@ -184,6 +186,34 @@ def main() -> None:
         assert "資料載入失敗" in page.locator("#note-text").inner_text()
         assert page.locator("#refresh-btn").is_enabled()
         print("PASS ⑦ 資料載入失敗：fallback 橫幅＋按鈕仍在")
+        ctx.close()
+
+        # ⑧ 無 token 裝置＋money.json 載入失敗：不叫人按看不到的鈕（R2）
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.route("**/data/money.json*", lambda route: route.abort())
+        page.goto(BASE)
+        page.wait_for_selector("#note-text")
+        note = page.locator("#note-text").inner_text()
+        assert "資料載入失敗" in note and "立即更新" not in note, note
+        assert not page.locator("#refresh-btn").is_visible()
+        print("PASS ⑧ 無 token＋載入失敗：文案不提按鈕、按鈕維持隱藏")
+        ctx.close()
+
+        # ⑨ runs 輪詢途中 401（token 被撤銷）：清 token、如實提示、按鈕留著（R3）
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(WITH_TOKEN)
+        page.route("https://api.github.com/**", gh_router({"dispatched": False}, runs_status=401))
+        alerts = []
+        page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
+        page.goto(BASE)
+        page.click("#refresh-btn")
+        page.wait_for_function("document.getElementById('refresh-btn').textContent === '立即更新'", timeout=5_000)
+        assert alerts and "token 已失效" in alerts[0], alerts
+        assert page.evaluate("localStorage.getItem('ptt_gh_token')") is None
+        assert page.locator("#refresh-btn").is_visible() and page.locator("#refresh-btn").is_enabled()
+        print("PASS ⑨ 輪詢 401：清 token、如實提示、按鈕留著")
         ctx.close()
 
         browser.close()

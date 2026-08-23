@@ -740,9 +740,12 @@ const GH = { owner: "dino-q", repo: "ptt-tracker", workflow: "update.yml", branc
 function ghToken() { try { return localStorage.getItem("ptt_gh_token") || ""; } catch (e) { return ""; } }
 function dropToken() { try { localStorage.removeItem("ptt_gh_token"); } catch (e) {} }
 
-// 公開頁不對路人亮「請貼 token」：沒設過 token 的裝置預設隱藏按鈕，網址加 #admin 才現身（首次設定用）
+// 公開頁不對路人亮「請貼 token」：沒設過 token 的裝置預設隱藏按鈕，網址加 #admin 才現身（首次設定用）。
+// sticky：本次瀏覽只要現身過就不再縮回——token 失效被清除後，「再按一次重新設定」的出路必須還在
+let SHOW_REFRESH = false;
 function syncRefreshVisibility() {
-  $("refresh-btn").style.display = (ghToken() || location.hash === "#admin") ? "" : "none";
+  if (ghToken() || location.hash === "#admin") SHOW_REFRESH = true;
+  $("refresh-btn").style.display = SHOW_REFRESH ? "" : "none";
 }
 window.addEventListener("hashchange", syncRefreshVisibility);
 
@@ -819,6 +822,11 @@ async function triggerRefresh() {
         done("查詢進度被 GitHub 限流（HTTP " + p.status + "）。更新多半已在雲端進行中，2～3 分鐘後手動重新整理頁面即可。");
         return;
       }
+      if (p.status === 401 || p.status === 404) {  // token 途中被撤銷/失效（status 0＝網路小失誤，留在迴圈續等）
+        dropToken();
+        done("token 已失效（可能被撤銷），已清除；更新多半已在雲端進行中，稍後手動重新整理。要再用這顆鈕請按一次重新設定 token。");
+        return;
+      }
       const run = p.json && p.json.workflow_runs && p.json.workflow_runs[0];
       if (run && new Date(run.created_at).getTime() >= startedAt - 60e3 && run.status === "completed") {
         if (run.conclusion !== "success") {
@@ -855,9 +863,11 @@ document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", a
   try { await load("money"); render(); }
   catch (e) {
     $("items").innerHTML = `<p class="error">載入失敗：${e.message}</p>`;
-    // 資料壞掉時「立即更新」反而最需要出現：note 橫幅照樣顯示，讓按鈕可按
+    // 資料壞掉時「立即更新」反而最需要出現：note 橫幅照樣顯示；文案跟著按鈕可見性走，不叫人按看不到的鈕
     $("note").style.display = "flex";
-    $("note-text").textContent = "資料載入失敗，可按「立即更新」重新產生";
+    $("note-text").textContent = SHOW_REFRESH
+      ? "資料載入失敗，可按「立即更新」重新產生"
+      : "資料載入失敗，請稍後重新整理再試";
   }
   load("hot").catch(() => {});  // 預先抓熱門資料
 })();
