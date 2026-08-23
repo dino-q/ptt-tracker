@@ -84,7 +84,21 @@
     border-radius: var(--radius); box-shadow: var(--shadow-card);
     padding: var(--space-5); margin-bottom: var(--space-4);
   }
-  .note { background: var(--color-accent-soft); color: var(--color-ink); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
+  .note { background: var(--color-accent-soft); color: var(--color-ink); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
+  #note-text { flex: 1 1 auto; }
+  #refresh-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 40px; background: var(--color-surface); border: 1px solid var(--color-line);
+    color: var(--color-ink-2); font-weight: 600; cursor: pointer;
+    border-radius: var(--radius-pill); padding: 8px var(--space-4); font-size: .85rem; white-space: nowrap;
+  }
+  #refresh-btn:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
+  #refresh-btn:active:not(:disabled) { filter: brightness(.97); }
+  #refresh-btn:disabled { opacity: .55; cursor: default; }
+  @media (prefers-reduced-motion: no-preference) {
+    #refresh-btn:disabled { animation: refresh-btn-pulse 1.8s ease-in-out infinite; }
+  }
+  @keyframes refresh-btn-pulse { 50% { opacity: .8; } }
   .filter-groups { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; }
   .tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
   .tab {
@@ -259,7 +273,10 @@
   </nav>
 
   <div class="results-toolbar">
-    <div id="note" class="note" style="display:none"></div>
+    <div id="note" class="note" style="display:none">
+      <span id="note-text"></span>
+      <button id="refresh-btn" type="button" title="立刻觸發雲端重新爬取，完成後自動重新載入">立即更新</button>
+    </div>
     <div class="filter-groups">
       <div class="tabs" id="cat-tabs" style="display:none"></div>
     </div>
@@ -429,8 +446,8 @@ async function load(view) {
 function render() {
   const d = DATA[VIEW];
   if (!d) return;
-  $("note").style.display = "block";
-  $("note").textContent = (d.note ? d.note + "｜" : "") + "更新於 " + d.updated_at;
+  $("note").style.display = "flex";
+  $("note-text").textContent = (d.note ? d.note + "｜" : "") + "更新於 " + d.updated_at;
   renderTabs(d);
   applyFilters(d);
 }
@@ -716,6 +733,111 @@ $("filter-btn").addEventListener("click", () => {
   $("filter-panel").style.display = FILTER_OPEN ? "flex" : "none";
   updateFilterBtn();
 });
+
+// —— 立即更新：觸發 GitHub Actions workflow_dispatch，完成後自動重新載入 ——
+// token 只存這台裝置的 localStorage，絕不寫進程式碼或送往 api.github.com 以外的任何地方
+const GH = { owner: "dino-q", repo: "ptt-tracker", workflow: "update.yml", branch: "master" };
+function ghToken() { try { return localStorage.getItem("ptt_gh_token") || ""; } catch (e) { return ""; } }
+function dropToken() { try { localStorage.removeItem("ptt_gh_token"); } catch (e) {} }
+
+// 公開頁不對路人亮「請貼 token」：沒設過 token 的裝置預設隱藏按鈕，網址加 #admin 才現身（首次設定用）
+function syncRefreshVisibility() {
+  $("refresh-btn").style.display = (ghToken() || location.hash === "#admin") ? "" : "none";
+}
+window.addEventListener("hashchange", syncRefreshVisibility);
+
+function setupToken() {
+  const t = window.prompt(
+    "第一次使用「立即更新」需要一把 GitHub token（只存在這台裝置的瀏覽器）。\n\n" +
+    "建立步驟（一次就好）：\n" +
+    "1. 登入 GitHub 後開 github.com/settings/personal-access-tokens/new\n" +
+    "2. Repository access 選 Only select repositories → ptt-tracker\n" +
+    "3. Permissions → Actions 設 Read and write\n" +
+    "4. Generate token 後把整串貼到下面：");
+  const v = (t || "").trim();
+  if (!v) return "";
+  try { localStorage.setItem("ptt_gh_token", v); } catch (e) {}
+  return v;
+}
+
+// 輪詢用：把 HTTP 狀態帶回來，讓呼叫端能分辨「還沒好」與「被限流/出錯」（網路失誤回 status 0 續等）
+async function pollJson(url, opts) {
+  try {
+    const r = await fetch(url, opts);
+    return { ok: r.ok, status: r.status, json: r.ok ? await r.json() : null };
+  } catch (e) { return { ok: false, status: 0, json: null }; }
+}
+
+async function triggerRefresh() {
+  const btn = $("refresh-btn");
+  let token = ghToken();
+  if (!token) token = setupToken();
+  if (!token) return;
+  const done = (msg) => {
+    btn.disabled = false; btn.textContent = "立即更新"; syncRefreshVisibility();
+    if (msg) alert(msg);
+  };
+  btn.disabled = true;
+  btn.textContent = "觸發中…";
+  const startedAt = Date.now();
+  // 變更基準：一定要拿到「舊資料的 updated_at」才能判斷換新；DATA 沒載到就現撈一次
+  let oldStamp = (DATA.money && DATA.money.updated_at) || "";
+  if (!oldStamp) {
+    const base = await pollJson("data/money.json", { cache: "no-store" });
+    if (base.json && base.json.updated_at) oldStamp = base.json.updated_at;
+  }
+  try {
+    const r = await fetch(
+      `https://api.github.com/repos/${GH.owner}/${GH.repo}/actions/workflows/${GH.workflow}/dispatches`,
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: GH.branch }),
+      });
+    if (r.status === 401 || r.status === 403 || r.status === 404) {
+      dropToken();
+      throw new Error("token 無效或權限不足（需要 ptt-tracker 的 Actions 讀寫），已清除；再按一次「立即更新」重新設定即可");
+    }
+    if (r.status !== 204) throw new Error("GitHub 回應 HTTP " + r.status);
+  } catch (e) {
+    done("觸發失敗：" + (e.message || e));
+    return;
+  }
+
+  btn.textContent = "更新中（約 2～3 分）…";
+  const interval = window.PTT_POLL_MS || 15e3;                       // 測試可注入縮短
+  const deadline = Date.now() + (window.PTT_DEADLINE_MS || 8 * 60e3);
+  // 只查本 workflow 的 dispatch runs（避免未來加第二支 dispatch workflow 誤判）；帶 token 輪詢（未認證 60 次/hr 很快撞頂）
+  const runsUrl = `https://api.github.com/repos/${GH.owner}/${GH.repo}/actions/workflows/${GH.workflow}/runs?event=workflow_dispatch&per_page=1`;
+  const authHdr = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" };
+  let runDone = false;
+  while (Date.now() < deadline) {
+    await new Promise(res => setTimeout(res, interval));
+    if (!runDone) {
+      const p = await pollJson(runsUrl, { cache: "no-store", headers: authHdr });
+      if (p.status === 403 || p.status === 429) {
+        done("查詢進度被 GitHub 限流（HTTP " + p.status + "）。更新多半已在雲端進行中，2～3 分鐘後手動重新整理頁面即可。");
+        return;
+      }
+      const run = p.json && p.json.workflow_runs && p.json.workflow_runs[0];
+      if (run && new Date(run.created_at).getTime() >= startedAt - 60e3 && run.status === "completed") {
+        if (run.conclusion !== "success") {
+          done("雲端更新失敗（" + run.conclusion + "），資料維持原狀，請稍後再試");
+          return;
+        }
+        runDone = true;
+      }
+    } else {
+      const p = await pollJson("data/money.json", { cache: "no-store" });
+      const stamp = p.json && p.json.updated_at;
+      // 有基準：等它真的變；沒基準（舊資料本來就載不到）：撈得到有效資料就算恢復
+      if (stamp && (!oldStamp || stamp !== oldStamp)) { location.reload(); return; }
+    }
+  }
+  done("等了一陣子還沒看到新資料，可能雲端排隊中；稍後手動重新整理頁面即可。");
+}
+$("refresh-btn").addEventListener("click", triggerRefresh);
+syncRefreshVisibility();
 document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", async () => {
   VIEW = b.dataset.view;
   ACTIVE_CAT = "全部";
@@ -731,7 +853,12 @@ document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", a
 
 (async () => {
   try { await load("money"); render(); }
-  catch (e) { $("items").innerHTML = `<p class="error">載入失敗：${e.message}</p>`; }
+  catch (e) {
+    $("items").innerHTML = `<p class="error">載入失敗：${e.message}</p>`;
+    // 資料壞掉時「立即更新」反而最需要出現：note 橫幅照樣顯示，讓按鈕可按
+    $("note").style.display = "flex";
+    $("note-text").textContent = "資料載入失敗，可按「立即更新」重新產生";
+  }
   load("hot").catch(() => {});  // 預先抓熱門資料
 })();
 </script>

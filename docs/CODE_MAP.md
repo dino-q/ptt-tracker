@@ -75,6 +75,7 @@
 
 - `scripts/build_site.py`：♻️ 調用 server.py 的 run_task/run_hot 產 `site/data/*.json`（Actions 與本機都能跑）。
 - `site/index.html`：唯讀靜態頁（省錢優惠＋熱門文章），部署在 https://dino-q.github.io/ptt-tracker/
+  - 🆕 `triggerRefresh()`（2026-08-23）：「立即更新」鈕＝瀏覽器直呼 GitHub API workflow_dispatch → 輪詢 run 完成 → 偵測 money.json updated_at 變化 → 自動 reload；PAT 存 localStorage `ptt_gh_token`（僅該裝置），401/403 自動清除重導設定。測試：tests/verify_refresh.py（mock GitHub API 三情境）
 - `.github/workflows/update.yml`：台灣 08–23 點每小時 cron（深夜停跑）＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
 
 ## 排程
