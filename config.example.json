@@ -1,9 +1,9 @@
 {
   "default_delay_seconds": 0.8,
   "boards": {
-    "marvel": [
-      "媽佛版",
-      "媽佛板"
+    "movie": [
+      "電影版",
+      "電影板"
     ],
     "Lifeismoney": [
       "省錢版",

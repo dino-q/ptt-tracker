@@ -7,7 +7,7 @@ PTT Assistant
 - Lifeismoney weekend convenience-store coffee/drink deal tracker
 
 Usage:
-    python ptt_tool.py "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔"
+    python ptt_tool.py "幫我上PTT的movie版找abc123這個作者，並且把他的文章做成txt檔"
     python ptt_tool.py "幫我找這週五六日超商咖啡或飲料優惠"
 """
 
@@ -36,8 +36,6 @@ USER_AGENT = (
 )
 
 BOARD_ALIASES = {
-    "媽佛版": "marvel",
-    "媽佛板": "marvel",
     "省錢版": "Lifeismoney",
     "省錢板": "Lifeismoney",
     "lifeismoney": "Lifeismoney",
@@ -590,7 +588,7 @@ def main():
             request = " ".join(args.request).strip()
             if not request:
                 print("請輸入一句話要求，例如：")
-                print('  python ptt_tool.py "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔"')
+                print('  python ptt_tool.py "幫我上PTT的movie版找abc123這個作者，並且把他的文章做成txt檔"')
                 print('  python ptt_tool.py "幫我找這週五六日超商咖啡或飲料優惠"')
                 sys.exit(2)
             path = run_natural_language(request, out_dir, args.delay)

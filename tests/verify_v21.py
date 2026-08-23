@@ -99,11 +99,11 @@ def main() -> None:
         page.locator('.viewbtn[data-view="hot"]').click()
 
         # 4) 白話解析導向作者下載頁
-        page.fill("#ask-input", "幫我上PTT的marvel版找abc123這個作者，並且把他的創作做成txt檔")
+        page.fill("#ask-input", "幫我上PTT的movie版找abc123這個作者，並且把他的文章做成txt檔")
         page.click("#btn-parse")
         expect(page.locator("#view-author")).to_be_visible()
         expect(page.locator("#f-a-author")).to_have_value("abc123")
-        expect(page.locator("#f-a-board")).to_have_value("marvel")
+        expect(page.locator("#f-a-board")).to_have_value("movie")
         print("PASS 白話解析：導向作者下載頁並填好欄位")
 
         # 5) 批次下載全文（省錢頁 -> 四大超商子集 -> 含留言）

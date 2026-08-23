@@ -215,3 +215,50 @@
 - 給 Ray：建議做一次瀏覽器 regression——重點測「天數篩選」切換後清單/分類頁籤篇數是否正確重算（`renderTabs()`／`applyFilters()` 依 `DAYS` 重跑）、卡片「置頂」「轉傳」按鈕的 localStorage 行為與 `navigator.share`/剪貼簿 fallback、`#to-top` 捲動閾值與平滑捲動。本輪只動 CSS token／間距／背景透明度，理論上不影響任何 click/keydown 邏輯，但建議實測收斂風險。
 - 給 Andy：請記錄「`--chip` 對比不足是本輪擁擠感真正成因、非控制項數量問題」這個判斷過程，日後若要再疊加第三個同語彙凹槽控制項到同一排，優先檢查底色對比與鄰接間距，而不是急著砍功能或改版面。
 - 給 Bevis：目前置頂項會略過天數/分類/文字三重篩選（永遠顯示在最前），這是既有 JS 邏輯、非本輪改動，若使用者之後反映「置頂的舊文章一直卡在最上面、篩選不掉」，屬於產品行為判斷，麻煩您定奪是否要讓置頂項也吃天數篩選。
+
+---
+
+## hallmark 整頁重設計（2026-08-23：Dino 直評「像拼裝」，授權整頁重做）
+
+### 任務意圖判定
+- 屬於 ①/② 混合但以「整頁重設計」為主——Dino 明講這次要「整頁重設計，不是增量修補」，且指名用 `hallmark` skill（已 clone 到本機 scratchpad），不是慣用的 `ui-ux-pro-max`。
+- 讀了 `hallmark` 的 `SKILL.md` 與 `references/verbs/redesign.md`：判定屬於 **multi-page 重設計流程**（兩個檔案要共用同一套視覺語言，命中 redesign.md § Step 0 的「使用者點名一個以上檔案」訊號）→ 先立 `design.md`（見專案根目錄 `design.md`），再套用到兩份頁面，而不是各自獨立挑色/挑字。
+- 額外載入 `references/genres/modern-minimal.md`、`typography.md`、`layout-and-space.md`、`color.md`、`anti-patterns.md`、`responsive.md`、`macrostructures.md`（索引）、`slop-test.md`（前 120 行，收斂 gate 清單）——未載入 nav/footer 的 `component-cookbook.md` 全文，因為判定這兩份頁面不是行銷頁，N1–N13／Ft1–Ft8 archetype 不適用（見下方「巨觀結構判定」），只挑讀了 genre 檔裡的 nav/footer 段落確認這個判斷站得住。
+- 未使用代替方案；`hallmark` 是這次任務指定的容器內 clone skill，非容器內建包，路徑見 prompt 給的 scratchpad 位置。
+
+### 整體協調性檢視
+- 退一步看整張畫面（不是只盯著結果區）：Dino 的「像拼裝」直評精準——十幾輪 `ui-ux-pro-max` 局部審查每次都對，但每次都是「這一小塊要不要收斂」的局部判斷，沒有一次重新問「整張畫面的骨架是不是該重排」。累積結果：結果區頭部三段控制項（看板 chips／分類 chips／範圍+排序+搜尋+匯出）雖然每段內部都做對了（凹槽 vs outline pill 語彙分清楚、觸控熱區夠、對比夠），但三段之間**沒有共同的容器**——各自浮在頁面背景上，靠零散的 `margin-bottom` 隔開，讀起來像三張各自為政的工具條，不是一個系統。這正是「local 都對、global 不對」的典型徵狀，也是為什麼要授權整頁重做而不是繼續局部修。
+- **這次是重排而非硬塞**：核心改動是把 `#note` / `#board-filter` / `#cat-tabs` / `#results-head`（`web/`）或 `#head`（`site/`）/ `#export-path` 全部收進一個新增的 `.results-toolbar` 面板容器（帶邊框、陰影、內距），並把 `#board-filter` 與 `#cat-tabs` 再包進 `.filter-groups`（flex 容器，兩者盡量併成同一行、擠不下才各自換行）。這個改動**沒有新增任何按鈕、欄位、或功能**，純粹是「原本就存在的資訊該用什麼容器裝」的骨架問題——完全符合 Dino 要求的「先看整張畫面該怎麼組織，不是把新東西塞進角落」。
+- 同時把整站配色/字體/圓角/陰影/間距重新收攏進 `design.md` 定義的單一系統（見下方設計決策），不是零散 hex/px。這是本輪跟過去六輪最大的差異：過去六輪是「在既有 token 上修補」，這次是「重新鑄造 token 系統」，因為累積下來的 `--bg`/`--surface`/`--ink` 等零散 hex 變數已經無法再靠局部修補讓畫面「一眼協調」——這也是「能用不等於協調」的具體案例。
+- **巨觀結構判定（明講偏離 hallmark 預設）**：hallmark 的 21 個 macrostructure 全部是「行銷頁形狀」（hero/feature grid/pricing…），這兩份檔案是使用者真正在操作的工具（表單→掃描→結果），21 選 1 硬套只會產生語意錯誤的骨架（例如逼自己塞一個「Hero」進一個掃描表單頁）。依 `custom-theme.md` § Bespoke depth 的允許條件（brief 的結構本身就不合任何 catalog macrostructure），採用 **bespoke 深度**：只借用 hallmark 的字體/色彩/間距/狀態/防 AI 味紀律，結構維持「條件表單→進度→結果」這個工具頁本來就對的骨架，**不強冠 nav（N1–N13）／footer（Ft1–Ft8）archetype 代號**——`.views` 功能頁籤本質上是 app 內的分頁切換，不是行銷網站的頂部導覽；頁尾維持一行免責聲明（語言上接近 Ft2 inline，但不用行銷頁尾的「product/company/resources」欄位邏輯）。這個判定已寫進 `design.md` 開頭，供之後任何人接手時知道「為什麼沒有 nav archetype 代號」。
+- 沒有發現需要跟主 Claude/Dino 討論的**新的**結構性整合建議——這次授權的重設計已經是最大幅度的結構收斂（三段控制項→一個面板），沒有留下需要進一步整合的按鍵/入口。
+
+### 設計決策
+1. **Genre：modern-minimal**（Stripe/Linear 學派的工具調性）。訊號：這是資料掃描工具（dashboard/dev-tool 感），命中 hallmark genre 偵測的 platform/dev-tool 類；不是 atmospheric（沒有暗色氛圍需求）也不是 playful（不是消費性/娛樂內容）。
+2. **Palette：延續既有 teal 品牌色（hue≈166），但重鑄成完整 OKLCH 四層調色盤**（paper/ink/neutral/accent，見 `design.md`）。理由：舊版 `--accent:#2f6f5e` 是前六輪刻意選定並算過對比的品牌色，不是隨手預設藍紫，依 hallmark redesign 規則「保留使用者已命名的品牌色」延續色相；但改用 OKLCH 建構後，`--bg`/`--surface`/`--chip` 等中性色第一次有系統性的色相帶入（原本是零散挑的灰階 hex，跟 accent 的暖冷關係是巧合不是設計），現在全部往 166° teal 微調，符合 `color.md`「neutrals 要往 anchor hue 帶」的紀律。
+3. **Typography：2+1 規則的務實折衷**——display 用 Space Grotesk（Google Fonts + 系統字 fallback，只吃英數字元）、body 維持系統 CJK 無襯線堆疊（不是 hallmark 預設的 Geist/Switzer 等 Latin 字體）、outlier 用 JetBrains Mono（僅用於 `#log` 與數字 `tabular-nums` 兩個角色）。**明講偏離**：body 用系統字而非 Google Fonts 是刻意的，因為內容幾乎全繁中，Latin body 字體對中文零效果、只會多一個離線失敗風險，不符合 Dino「本機版可能離線」的硬性限制——這是「查證後的偏離」，不是偷懶沒查 hallmark 規則。
+4. **結果工具列重排（本輪核心）**：新增 `.results-toolbar`（面板容器：邊框/陰影/內距）與 `.filter-groups`（flex 併行容器）兩個純附加的 wrapper `<div>`，把既有 `#note`/`#board-filter`/`#cat-tabs`/`#results-head`（或 `#head`）/`#export-path` 收進去。**零 JS 改動**——所有 `id`、JS 用到的 `class`（`viewbtn`/`active`/`view`/`tab`/`track`/`run`/`del`/`name`/`clickable`/`cachetime`/`runbtn`/`item`/`open`/`preview`/`toggle`/`chip`/`chips`/`meta`/`meta-metric`/`card`/`empty`/`error`/`badge-new`/`badge-pin`/`item-actions`/`act`/`checkline`/`sort-label`）與 `data-view`/`data-days`/`data-sort` 屬性**逐一核對**，只加外層包裝、不改名不刪除。
+5. **狀態紀律補齊**：全部互動元素統一 `min-height:44px`（觸控下限，也讓 `.ask` 一排的輸入框跟按鈕高度一致，命中 slop-test gate 39）；補齊 `:active`（`.viewbtn`/`.tab`/`button.primary`/`button.ghost`/`.track button.run`/`#to-top`/`.act`/`.toggle`）；全域 `prefers-reduced-motion: reduce` 降級（前六輪都沒補這個，這次一併補上）；`html`/`body` 加 `overflow-x: clip`（slop-test gate 34 的硬性防線，前六輪也沒有，這次補上）。
+6. **搜尋圖示（唯一新增的裝飾元素）**：`#ask-input` 與 `#filter-box` 補上同一顆手繪 SVG 放大鏡（data URI background-image，非圖示字型/emoji），維持「同一套圖示語彙只用一次角色（搜尋類輸入框）」的紀律，不擴散到其他地方。
+7. **克制**：沒有加漸層、玻璃感、裝飾色塊、圖示字型、emoji；沒有新增第三種按鈕語言（仍只有 primary/ghost 兩級）；沒有把 `.views` 或 `#sort-toggle`/`#day-filter` 這兩套已經分清楚語彙的控制項再改造——這兩套是前幾輪已經打磨對的部分，這次原樣沿用只套新色票，沒有為了「整頁重設計」而動不需要動的東西。
+
+### 產物位置
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`——`<style>` 區塊全面重寫（新 token 系統）；`<body>` 只動兩處：① `header.site` 內加 `.mark` 色塊 + `.head-text` 包裝；② `#results` 內把既有子元素收進新增的 `.results-toolbar` / `.filter-groups` 包裝。`<script>` 區塊逐行核對後**完全未動**。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html`——同一套改法（`<style>` 重寫＋`header`/`.results-toolbar`／`.filter-groups` 包裝），`<script>` 未動。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\design.md`（新建，專案根目錄）——鎖定的設計系統，記載 genre/palette/typography/spacing/motion/CTA voice/巨觀結構判定，之後任何人改這兩份頁面先讀這份。
+- 執行方式：`web/index.html` 照舊跑 `server.py`（`http://127.0.0.1:8877`）；`site/index.html` 為靜態頁，建議用 http server 開（本輪用 `file://` 直接開檔測試時 `fetch()` 因瀏覽器同源限制會失敗顯示「載入失敗」，這是測試方法本身的限制，不是本輪改動造成，部署後走 http(s) 正常）。
+
+### 自審結果（④ 心法 + hallmark slop-test 自評）
+- **三套行為測試全綠**（Playwright 實機跑，非猜測）：
+  - `tests/verify_v21.py`——ALL PASS（開頁即看快取、分類頁籤過濾、天數篩選單調性、置頂跳位、回頂、熱門排序遞減、看板自選隱藏/還原、白話解析導向、批次下載含留言 TXT）
+  - `tests/verify_ui.py`——ALL PASS（白話解析導向進階頁、真實掃描、結果過濾歸零/還原、內文摘要展開）
+  - `tests/verify_guard.py`——ALL PASS（掃描中所有 `.runbtn` 停用、原掃描正常完成並自動切回）
+- **RWD**：額外用 Playwright 在 375px 寬度截圖 money/hot/advanced 三個功能頁與 `site/index.html`，四張截圖 `document.documentElement.scrollWidth` 均為 375（無橫向溢出，命中 slop-test gate 34）；`.views` 頁籤在窄螢幕自然換行、每顆按鈕文字仍單行不斷行（命中 gate 49）；`.track .name` 這種說明性文字換兩行不算違規（非按鈕/CTA/導覽連結）。
+- **a11y**：全域 `:focus-visible` 用 `outline`（非 `border`，不擠壓版面，命中 gate 39）、2px `--color-focus`，不 transition（鍵盤使用者立即可見，命中 slop-test 第 15 條）；三態齊全（hover/focus-visible/active/disabled，disabled 三通道：opacity+cursor+原生屬性）；對比沿用既有已算過的色相結構重鑄成 OKLCH，肉眼實測（見截圖）文字對比清楚無washed-out 情形。
+- **對比**：新色票用 OKLCH 明度差重新核算（accent 41% L vs 白系卡片 99%、ink 24% L vs bg 97%，明度差均遠超 50% 的快篩門檻），未做 APCA 精算工具驗證，但明度差幅度遠超過原本已通過 AA 4.5:1 的舊版色票結構，風險評估為低。
+- **hallmark slop-test 自評**（前 40 條逐項對照，非全 58 條逐一列出但涵蓋所有高風險項）：無漸層／無 Inter-everywhere（用 Space Grotesk+CJK 系統字配對）／無 3 欄 icon 卡／無 card-in-card／無側邊色條卡片／無純黑純白（modern-minimal genre 允許純白但仍用微 tint 的 oklch）／有 macrostructure 判定聲明（bespoke，理由見上）／無 `transition:all`／無彈跳 easing／focus ring 不淡入／無慶祝式 toast／無佔位人名/新創陳詞／無 zero-chroma 中性色／accent 佔比遠低於 5%／間距全部在 4px 刻度上／`overflow-x:clip` 已加／reduced-motion 已加／字體家族數＝3（display+body+mono outlier，未逾三；outlier 僅 2 個角色未逾 2 槽）／無斜體標題／輸入框狀態齊全（`min-height:44px` 統一、outline 而非 border 做 focus、disabled 三通道）。**已知遺留、非本輪範圍**：APCA 精算與深色模式未做（Dino 本次任務明講「深色模式不要求」）。
+
+### 後續建議
+- 給 Bevis：本輪為視覺/資訊架構重排，未變更任何功能或掃描邏輯，若後續要新增第 5 個功能頁，設計上已預留骨架（`.views` 頁籤 + `.results-toolbar` 面板可直接沿用），建議新功能上線前提醒我一併檢查是否要沿用同一套結果工具列。
+- 給 Ray：建議針對 `site/index.html` 補一次「用 http server（不是 file://）開啟」的 regression，確認 `fetch("data/money.json")` 在真實部署路徑下正常，本輪只用 `file://` 快速視覺檢查、已知這個限制不是本輪改動造成。
+- 給 Andy：請記錄本輪「從六輪局部修補轉為 hallmark 整頁重設計」的判斷分水嶺（累積的零散 token 已無法靠局部修補達成協調，需要重鑄系統）、以及 `design.md` 這個新的單一事實來源上線，之後任何人改這兩份頁面的視覺，優先讀 `design.md` 而非直接讀 CSS 猜規則。

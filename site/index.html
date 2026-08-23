@@ -5,143 +5,184 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PTT 追蹤（省錢優惠・熱門文章）</title>
 <style>
+  /* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4
+     genre: modern-minimal · shape: bespoke control-panel (read-only sibling of
+     web/index.html — same design system, see design.md at project root) ·
+     theme: custom teal anchor · enrichment: none. */
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+
   :root {
-    --bg: #f4f5f7; --surface: #ffffff; --ink: #1f2733; --ink-2: #5b6675;
-    --line: #e3e7ec; --accent: #2f6f5e; --accent-ink: #ffffff; --accent-soft: #e7f1ee;
-    --warn: #b4552d;
-    /* 「新內容」語意色：獨立於 --warn(警告/錯誤)與 --accent(主要動作/正向)之外的第三色相(藍)，
-       避免「新」徽章被誤讀成警告或跟主導覽搶視覺權重；對比已核算：
-       --new on --new-soft ≈ 5.56:1（AA 一般文字需 4.5:1），--new-soft on 白卡片 ≈ 6.5:1（非文字元件需 3:1） */
-    --new: #2b5f9e; --new-soft: #e7eef8;
-    /* 凹槽控制項（.views／#day-filter／#sort-toggle）用底色；跟 --bg 拉開到肉眼可辨的程度，
-       避免兩個凹槽控制項並排時邊界消失、看起來像一整排散落的文字按鈕 */
-    --chip: #e7eaef;
-    --radius: 10px; --radius-sm: 8px; --radius-pill: 999px;
-    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
-    --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px;
+    --color-bg:        oklch(97.2% 0.006 166);
+    --color-surface:   oklch(99.3% 0.002 166);
+    --color-surface-2: oklch(95.8% 0.007 166);
+    --color-ink:   oklch(24% 0.014 166);
+    --color-ink-2: oklch(47% 0.013 166);
+    --color-line:  oklch(89% 0.008 166);
+    --color-chip:  oklch(92.5% 0.010 166);
+    --color-accent:      oklch(41% 0.082 166);
+    --color-accent-ink:  oklch(98% 0.004 166);
+    --color-accent-soft: oklch(92.5% 0.032 166);
+    --color-focus:       oklch(56% 0.10 166);
+    --color-warn:     oklch(48% 0.115 35);
+    --color-new:      oklch(45% 0.100 255);
+    --color-new-soft: oklch(93% 0.028 255);
+
+    --font-display: "Space Grotesk", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    --font-body:    "Microsoft JhengHei", "PingFang TC", "Segoe UI", sans-serif;
+    --font-mono:    "JetBrains Mono", Consolas, monospace;
+
+    --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px; --space-9: 56px;
+    --radius: 12px; --radius-sm: 8px; --radius-pill: 999px;
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --dur-short: 180ms; --dur-med: 260ms;
+    --shadow-whisper: 0 1px 2px oklch(20% 0.01 166 / 0.06);
+    --shadow-card: 0 1px 3px oklch(20% 0.01 166 / 0.05), 0 1px 1px oklch(20% 0.01 166 / 0.04);
     font-size: 16px;
   }
   * { box-sizing: border-box; }
+  html { overflow-x: clip; }
   body {
-    margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
-    font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    margin: 0; overflow-x: clip; background: var(--color-bg); color: var(--color-ink); line-height: 1.6;
+    font-family: var(--font-body);
   }
-  .wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-8); }
-  a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  header.site { padding: var(--space-2) 0 var(--space-5); border-bottom: 1px solid var(--line); margin-bottom: var(--space-6); }
-  header.site h1 { margin: 0; font-size: 1.5rem; font-weight: 600; }
-  header.site p { margin: var(--space-1) 0 0; color: var(--ink-2); font-size: .92rem; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: var(--space-7) var(--space-4) var(--space-9); }
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--color-focus); outline-offset: 2px;
+  }
+  button { font-family: inherit; transition: filter var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out); }
+
+  header.site {
+    display: flex; align-items: baseline; gap: var(--space-3);
+    padding: var(--space-2) 0 var(--space-6); border-bottom: 1px solid var(--color-line);
+    margin-bottom: var(--space-7);
+  }
+  header.site .mark { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--color-accent); margin-bottom: 3px; }
+  header.site .head-text { min-width: 0; }
+  header.site h1 {
+    margin: 0; font-family: var(--font-display); font-weight: 600;
+    font-size: clamp(1.35rem, 1.1rem + .8vw, 1.7rem); letter-spacing: -0.01em; overflow-wrap: anywhere;
+  }
+  header.site p { margin: var(--space-1) 0 0; color: var(--color-ink-2); font-size: .92rem; }
 
   .views {
     display: flex; flex-wrap: wrap; gap: 2px; width: fit-content; max-width: 100%;
-    background: var(--chip); border-radius: var(--radius-pill); padding: 3px; margin-bottom: var(--space-5);
+    background: var(--color-chip); border-radius: var(--radius-pill); padding: 3px; margin-bottom: var(--space-6);
   }
   .viewbtn {
-    background: transparent; border: 0; color: var(--ink-2); cursor: pointer;
+    background: transparent; border: 0; color: var(--color-ink-2); cursor: pointer;
     border-radius: var(--radius-pill); padding: 10px var(--space-5);
     font-size: .95rem; font-weight: 600; white-space: nowrap;
   }
-  .viewbtn:hover { color: var(--accent); }
-  .viewbtn.active { background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 2px rgba(31,39,51,.15); }
+  .viewbtn:hover { color: var(--color-accent); }
+  .viewbtn:active { filter: brightness(.95); }
+  .viewbtn.active { background: var(--color-accent); color: var(--color-accent-ink); box-shadow: var(--shadow-whisper); }
 
-  .note { background: var(--accent-soft); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
-  .tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+  /* ---------- 結果工具列：note／看板＋分類 chips／範圍・排序・搜尋 收進同一張面板 ---------- */
+  .results-toolbar {
+    background: var(--color-surface); border: 1px solid var(--color-line);
+    border-radius: var(--radius); box-shadow: var(--shadow-card);
+    padding: var(--space-5); margin-bottom: var(--space-4);
+  }
+  .note { background: var(--color-accent-soft); color: var(--color-ink); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: .88rem; margin-bottom: var(--space-3); }
+  .filter-groups { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; }
+  .tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
   .tab {
-    background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); cursor: pointer;
+    background: var(--color-surface); border: 1px solid var(--color-line); color: var(--color-ink-2); cursor: pointer;
     border-radius: var(--radius-pill); padding: 7px var(--space-4); font-size: .85rem; white-space: nowrap;
   }
-  .tab:hover { border-color: var(--accent); color: var(--accent); }
-  .tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
-  /* 排序切換：刻意做成「凹槽＋實色滑塊」的分段控制項（沿用 .views 頁面級導覽的視覺語言），
-     跟上面 #cat-tabs 那排「單顆外框 pill」的分類篩選拉開視覺差異——避免使用者把「排序」誤讀成「另一組分類」 */
-  #sort-toggle { background: var(--chip); border-radius: var(--radius-pill); padding: 3px; gap: 2px; align-items: center; }
-  #sort-toggle .sort-label { font-size: .78rem; color: var(--ink-2); padding: 0 var(--space-1) 0 var(--space-2); white-space: nowrap; }
-  #sort-toggle .tab {
-    background: transparent; border: 0; color: var(--ink-2);
-    padding: 6px var(--space-3); font-size: .82rem;
+  .tab:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  .tab:active { filter: brightness(.97); }
+  .tab.active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); font-weight: 600; }
+  .sort-label { font-size: .72rem; color: var(--color-ink-2); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+
+  #sort-toggle, #day-filter {
+    background: var(--color-chip); border-radius: var(--radius-pill); padding: 3px var(--space-2) 3px 3px; gap: 2px;
   }
-  #sort-toggle .tab:hover { color: var(--accent); }
-  #sort-toggle .tab.active {
-    background: var(--surface); border-color: transparent; color: var(--ink);
-    font-weight: 600; box-shadow: 0 1px 2px rgba(31,39,51,.12);
+  #sort-toggle .sort-label, #day-filter .sort-label { padding-left: var(--space-2); }
+  #sort-toggle .tab, #day-filter .tab { background: transparent; border: 0; color: var(--color-ink-2); padding: 6px var(--space-3); font-size: .82rem; }
+  #sort-toggle .tab:hover, #day-filter .tab:hover { color: var(--color-accent); }
+  #sort-toggle .tab.active, #day-filter .tab.active {
+    background: var(--color-surface); border-color: transparent; color: var(--color-ink); font-weight: 600; box-shadow: var(--shadow-whisper);
   }
-  /* 天數篩選：與排序切換同一種凹槽控制項語言 */
-  #day-filter { background: var(--chip); border-radius: var(--radius-pill); padding: 3px; gap: 2px; align-items: center; }
-  #day-filter .sort-label { font-size: .78rem; color: var(--ink-2); padding: 0 var(--space-1) 0 var(--space-2); white-space: nowrap; }
-  #day-filter .tab { background: transparent; border: 0; color: var(--ink-2); padding: 6px var(--space-3); font-size: .82rem; }
-  #day-filter .tab:hover { color: var(--accent); }
-  #day-filter .tab.active { background: var(--surface); border-color: transparent; color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(31,39,51,.12); }
-  /* 天數與排序兩個凹槽控制項在熱門結果會同時出現、緊鄰排列；補一點額外間距把兩組視覺邊界拉開 */
-  #day-filter + #sort-toggle { margin-left: var(--space-2); }
+  #day-filter + #sort-toggle { margin-left: var(--space-1); }
+
+  #head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-top: var(--space-3); }
+  #count { font-size: .88rem; color: var(--color-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #filter-box {
+    flex: 1 1 180px; min-width: 160px; min-height: 40px; padding: 8px 12px 8px 34px; font-size: .92rem;
+    border: 1px solid var(--color-line); border-radius: var(--radius-sm);
+    background: var(--color-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6f6a' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 10px center / 14px;
+  }
+
   .item-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
   .act {
-    margin-top: var(--space-2); background: none; border: 0; color: var(--accent);
+    margin-top: var(--space-2); background: none; border: 0; color: var(--color-accent);
     cursor: pointer; font-size: .85rem; padding: 4px 2px;
   }
+  .act:active { opacity: .7; }
   .badge-pin {
-    display: inline-block; background: var(--chip); color: var(--ink-2);
+    display: inline-block; background: var(--color-chip); color: var(--color-ink-2);
     border-radius: var(--radius-pill); font-size: .72rem; font-weight: 600;
     padding: 1px 8px; margin-right: 6px; vertical-align: 2px;
   }
-  /* 尺寸維持 44×44（觸控最小熱區下限）；半透明底＋輕陰影讓它感覺「浮在上面」而非蓋住內容的白卡片 */
   #to-top {
     position: fixed; right: 18px; bottom: 18px; display: none;
     width: 44px; height: 44px; border-radius: 50%;
-    background: rgba(255, 255, 255, .88); backdrop-filter: blur(4px);
-    color: var(--accent); border: 1px solid var(--line);
-    box-shadow: 0 2px 6px rgba(31,39,51,.14);
+    background: oklch(99% 0.002 166 / .9); backdrop-filter: blur(4px);
+    color: var(--color-accent); border: 1px solid var(--color-line);
+    box-shadow: var(--shadow-card);
     font-size: 1.2rem; cursor: pointer;
   }
-  #to-top:hover { border-color: var(--accent); background: var(--surface); }
+  #to-top:hover { border-color: var(--color-accent); background: var(--color-surface); }
+  #to-top:active { transform: scale(.96); }
 
-  #head { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); }
-  #count { font-size: .95rem; color: var(--ink-2); }
-  #filter-box {
-    flex: 1; min-width: 160px; padding: 8px 12px; font-size: .92rem;
-    border: 1px solid var(--line); border-radius: var(--radius-sm);
-  }
   .card {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-3);
+    background: var(--color-surface); border: 1px solid var(--color-line);
+    border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-3); box-shadow: var(--shadow-whisper);
   }
   .card h3 { margin: 0 0 var(--space-1); font-size: 1rem; font-weight: 600; }
-  .card h3 a { color: var(--ink); text-decoration: none; }
-  .card h3 a:hover { color: var(--accent); text-decoration: underline; }
-  .meta { font-size: .83rem; color: var(--ink-2); line-height: 1.7; }
-  /* meta 行變長後的重點提示：留言（含每小時）／討論串篇數是排序依據的數字，
-     用 accent 提亮跟日期/作者/看板這些單純識別資訊拉開層次 */
-  .meta-metric { color: var(--accent); font-weight: 600; }
+  .card h3 a { color: var(--color-ink); text-decoration: none; }
+  .card h3 a:hover { color: var(--color-accent); text-decoration: underline; }
+  .meta { font-size: .83rem; color: var(--color-ink-2); line-height: 1.7; font-variant-numeric: tabular-nums; }
+  .meta-metric { color: var(--color-accent); font-weight: 600; }
   .chips { margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { background: var(--chip); border-radius: var(--radius-pill); padding: 2px 10px; font-size: .8rem; color: var(--ink-2); }
-  /* 沿用 .tab.active 的「淡底＋同色文字」次強調語言（而非 .viewbtn.active 那種實色高權重 pill），
-     跟標題文字保持視覺主從：badge 標記「新」，但不搶過 h3 本身 */
+  .chip { background: var(--color-chip); border-radius: var(--radius-pill); padding: 2px 10px; font-size: .8rem; color: var(--color-ink-2); }
   .badge-new {
-    display: inline-block; background: var(--new-soft); color: var(--new);
+    display: inline-block; background: var(--color-new-soft); color: var(--color-new);
     border-radius: var(--radius-pill); font-size: .72rem; font-weight: 600;
     padding: 1px 8px; margin-right: 6px; vertical-align: 2px;
   }
   .preview {
     display: none; margin-top: var(--space-3); padding: var(--space-2) var(--space-3);
-    background: #fafbfc; border-left: 3px solid var(--accent);
+    background: var(--color-surface-2); border-left: 3px solid var(--color-accent);
     font-size: .88rem; white-space: pre-wrap; word-break: break-word;
     max-height: 320px; overflow-y: auto;
   }
   .card.open .preview { display: block; }
   .toggle {
-    margin-top: var(--space-2); background: none; border: 0; color: var(--accent);
+    margin-top: var(--space-2); background: none; border: 0; color: var(--color-accent);
     cursor: pointer; font-size: .85rem; padding: 4px 2px;
   }
-  .empty { color: var(--ink-2); font-size: .95rem; }
-  .error { color: var(--warn); font-weight: 600; }
+  .toggle:active { opacity: .7; }
+  .empty { color: var(--color-ink-2); font-size: .95rem; }
+  .error { color: var(--color-warn); font-weight: 600; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-  footer { color: var(--ink-2); font-size: .78rem; border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-8); }
+  footer { color: var(--color-ink-2); font-size: .78rem; border-top: 1px solid var(--color-line); padding-top: var(--space-4); margin-top: var(--space-9); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="site">
-    <h1>PTT 追蹤</h1>
-    <p>省錢優惠與全站熱門文章，白天（08:00～23:00）每小時自動更新。</p>
+    <span class="mark" aria-hidden="true"></span>
+    <div class="head-text">
+      <h1>PTT 追蹤</h1>
+      <p>省錢優惠與全站熱門文章，白天（08:00～23:00）每小時自動更新。</p>
+    </div>
   </header>
 
   <nav class="views" aria-label="功能切換">
@@ -149,26 +190,30 @@
     <button class="viewbtn" data-view="hot">熱門文章</button>
   </nav>
 
-  <div id="note" class="note" style="display:none"></div>
-  <div class="tabs" id="board-filter" style="display:none"></div>
-  <div class="tabs" id="cat-tabs" style="display:none"></div>
-  <div id="head">
-    <span id="count"></span>
-    <span class="tabs" id="day-filter" style="display:none; margin-bottom:0">
-      <span class="sort-label">範圍</span>
-      <button class="tab" data-days="1">1天</button>
-      <button class="tab active" data-days="3">3天</button>
-      <button class="tab" data-days="5">5天</button>
-      <button class="tab" data-days="10">10天</button>
-    </span>
-    <span class="tabs" id="sort-toggle" style="display:none; margin-bottom:0">
-      <span class="sort-label">排序</span>
-      <button class="tab active" data-sort="rising">正在起飛</button>
-      <button class="tab" data-sort="comments">總留言數</button>
-      <button class="tab" data-sort="time">最新</button>
-    </span>
-    <label class="sr-only" for="filter-box">在結果中過濾</label>
-    <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
+  <div class="results-toolbar">
+    <div id="note" class="note" style="display:none"></div>
+    <div class="filter-groups">
+      <div class="tabs" id="board-filter" style="display:none"></div>
+      <div class="tabs" id="cat-tabs" style="display:none"></div>
+    </div>
+    <div id="head">
+      <span id="count"></span>
+      <span class="tabs" id="day-filter" style="display:none; margin-bottom:0">
+        <span class="sort-label">範圍</span>
+        <button class="tab" data-days="1">1天</button>
+        <button class="tab active" data-days="3">3天</button>
+        <button class="tab" data-days="5">5天</button>
+        <button class="tab" data-days="10">10天</button>
+      </span>
+      <span class="tabs" id="sort-toggle" style="display:none; margin-bottom:0">
+        <span class="sort-label">排序</span>
+        <button class="tab active" data-sort="rising">正在起飛</button>
+        <button class="tab" data-sort="comments">總留言數</button>
+        <button class="tab" data-sort="time">最新</button>
+      </span>
+      <label class="sr-only" for="filter-box">在結果中過濾</label>
+      <input id="filter-box" placeholder="在結果中過濾（標題/作者/看板）">
+    </div>
   </div>
   <div id="items"><p class="empty">載入中…</p></div>
 
