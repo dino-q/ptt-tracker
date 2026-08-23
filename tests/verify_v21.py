@@ -112,6 +112,18 @@ def main() -> None:
         expect(page.locator("#f-a-board")).to_have_value("movie")
         print("PASS 白話解析：導向作者下載頁並填好欄位")
 
+        # 4b) 全文閱讀器：熱門頁開第一篇 → 內文行＋留言樓層
+        page.locator('.viewbtn[data-view="hot"]').click()
+        hot_first = page.locator("#items .item").first
+        hot_first.locator(".toggle").click()
+        expect(hot_first.locator(".preview .cmt").first).to_be_visible(timeout=30_000)
+        f1 = hot_first.locator(".preview .cmt-floor").first.inner_text()
+        assert f1 == "1F", f1
+        n_cmt = hot_first.locator(".preview .cmt").count()
+        assert n_cmt >= 20, f"熱門文留言應不少（{n_cmt}）"
+        hot_first.locator(".toggle").click()
+        print(f"PASS 全文閱讀器：留言 {n_cmt} 則、樓層自 {f1} 起")
+
         # 5) 批次下載全文（省錢頁 -> 四大超商子集 -> 含留言）
         page.locator('.viewbtn[data-view="money"]').click()
         page.locator("#cat-tabs .tab", has_text="四大超商").click()

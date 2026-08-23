@@ -289,13 +289,32 @@
     display: none; margin-top: var(--space-3); padding: var(--space-2) var(--space-3);
     background: var(--color-surface-2); border-left: 3px solid var(--color-accent);
     font-size: .88rem; white-space: pre-wrap; word-break: break-word;
-    max-height: 320px; overflow-y: auto;
+    max-height: 72vh; overflow-y: auto;
   }
   .item.open .preview { display: block; }
   .item .toggle {
     margin-top: var(--space-2); background: none; border: 0; color: var(--color-accent);
     cursor: pointer; font-size: .85rem; padding: 4px 2px;
   }
+  /* 全文閱讀器 */
+  .art-body { font-size: .9rem; line-height: 1.7; }
+  .art-body .art-line:empty::after { content: "\00a0"; }
+  .art-img { display: block; max-width: 100%; border-radius: var(--radius-sm); margin: var(--space-2) 0; }
+  .art-comments-head {
+    margin-top: var(--space-4); padding-top: var(--space-3);
+    border-top: 1px solid var(--color-line); font-weight: 600; font-size: .88rem;
+  }
+  .cmt {
+    display: flex; gap: 6px; font-size: .85rem; padding: 3px 0;
+    border-bottom: 1px dashed var(--color-line); align-items: baseline; flex-wrap: wrap;
+  }
+  .cmt-floor { font-family: var(--font-mono); color: var(--color-ink-2); font-size: .75rem; min-width: 36px; }
+  .cmt-tag.push { color: var(--color-accent); font-weight: 600; }
+  .cmt-tag.boo { color: var(--color-warn); font-weight: 600; }
+  .cmt-tag.arrow { color: var(--color-ink-2); }
+  .cmt-user { font-weight: 600; }
+  .cmt-content { flex: 1 1 auto; min-width: 180px; overflow-wrap: anywhere; }
+  .cmt-time { color: var(--color-ink-2); font-size: .75rem; }
   .item .toggle:active, .item .act:active { opacity: .7; }
   /* 沿用 .tab.active 的「淡底＋同色文字」次強調語言（而非 .viewbtn.active 那種實色高權重 pill），
      跟標題文字保持視覺主從：badge 標記「新」，但不搶過 h3 本身 */
@@ -1144,23 +1163,24 @@ function renderItems(list) {
     }
     const pre = document.createElement("div");
     pre.className = "preview";
-    pre.textContent = r.preview || "";
     const btn = document.createElement("button");
     btn.className = "toggle";
-    btn.textContent = "顯示內文摘要";
+    btn.textContent = "閱讀全文";
     btn.addEventListener("click", async () => {
       if (div.classList.contains("open")) {
         div.classList.remove("open");
-        btn.textContent = "顯示內文摘要";
+        btn.textContent = "閱讀全文";
         return;
       }
-      if (!pre.textContent) {
+      if (!pre.dataset.filled) {
         btn.textContent = "讀取中…";
         try {
-          const j = await api("/api/article?url=" + encodeURIComponent(r.url));
-          pre.textContent = j.body || "（無內文）";
-          r.preview = pre.textContent;
-        } catch (e) { pre.textContent = "讀取失敗：" + e.message; }
+          const art = await api("/api/article?url=" + encodeURIComponent(r.url));
+          fillArticle(pre, art);
+          pre.dataset.filled = "1";
+        } catch (e) {
+          pre.textContent = (r.preview ? r.preview + "\n\n" : "") + "全文讀取失敗：" + e.message;
+        }
       }
       div.classList.add("open");
       btn.textContent = "收合";
@@ -1172,6 +1192,67 @@ function renderItems(list) {
     actions.appendChild(makeShareBtn(r));
     div.append(actions, pre);
     box.appendChild(div);
+  }
+}
+
+/* ---------------- 全文閱讀器：內文（含圖片）＋留言（含樓層） ---------------- */
+function renderLine(parent, line) {
+  const div = document.createElement("div");
+  div.className = "art-line";
+  const urlRe = /(https?:\/\/[^\s]+)/g;
+  let last = 0, m;
+  while ((m = urlRe.exec(line))) {
+    if (m.index > last) div.appendChild(document.createTextNode(line.slice(last, m.index)));
+    const u = m[1];
+    if (/\.(jpg|jpeg|png|gif|webp)(\?[^\s]*)?$/i.test(u) || /^https?:\/\/i\.imgur\.com\//i.test(u)) {
+      const img = document.createElement("img");
+      img.src = u; img.loading = "lazy"; img.className = "art-img"; img.alt = "";
+      img.referrerPolicy = "no-referrer";  // imgur 等圖床擋外連 referrer 的通行證
+      div.appendChild(img);
+    } else {
+      const a = document.createElement("a");
+      a.href = u; a.textContent = u; a.target = "_blank"; a.rel = "noopener";
+      div.appendChild(a);
+    }
+    last = m.index + u.length;
+  }
+  if (last < line.length) div.appendChild(document.createTextNode(line.slice(last)));
+  parent.appendChild(div);
+}
+
+function fillArticle(container, art) {
+  container.textContent = "";
+  const body = document.createElement("div");
+  body.className = "art-body";
+  for (const line of (art.body || "").split("\n")) renderLine(body, line);
+  container.appendChild(body);
+  const comments = art.comments || [];
+  if (comments.length) {
+    const head = document.createElement("div");
+    head.className = "art-comments-head";
+    head.textContent = `留言（${comments.length}）`;
+    container.appendChild(head);
+    comments.forEach((c, i) => {
+      const row = document.createElement("div");
+      row.className = "cmt";
+      const floor = document.createElement("span");
+      floor.className = "cmt-floor";
+      floor.textContent = (i + 1) + "F";
+      const tag = document.createElement("span");
+      tag.className = "cmt-tag " + (c.tag === "推" ? "push" : c.tag === "噓" ? "boo" : "arrow");
+      tag.textContent = c.tag || "→";
+      const user = document.createElement("span");
+      user.className = "cmt-user";
+      user.textContent = c.user || "";
+      const content = document.createElement("span");
+      content.className = "cmt-content";
+      content.textContent = c.content || "";
+      const time = document.createElement("span");
+      time.className = "cmt-time";
+      time.textContent = c.time || "";
+      row.append(floor, tag, user, content, time);
+      container.appendChild(row);
+    });
   }
 }
 

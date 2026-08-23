@@ -493,6 +493,27 @@ def _thread_key(title: str) -> str:
     return re.sub(r"\s+", "", t).lower()
 
 
+def article_id(url: str) -> str:
+    """文章檔案 id（與前端 JS 的 articleId() 同規則）：Gossiping_M.1787468237.A.190"""
+    m = re.search(r"/bbs/([^/]+)/([^/]+)\.html", url or "")
+    if m:
+        return f"{m.group(1)}_{m.group(2)}"
+    return re.sub(r"\W+", "_", url or "")[:60]
+
+
+def article_package(art) -> dict:
+    """閱讀器用的文章包：全文＋結構化留言（樓層＝清單順序）。"""
+    return {
+        "title": art.title,
+        "author": art.author,
+        "board": art.board,
+        "date": art.date_text,
+        "url": art.url,
+        "body": (art.body or "")[:12000],
+        "comments": (art.comment_list or [])[:300],
+    }
+
+
 JOBS: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
@@ -835,6 +856,7 @@ def run_hot(task: dict, job: dict) -> None:
 
         # 收錄驗證：實際讀文章數總留言，過板級門檻才收錄（accepted_at＝現在）
         accepted_new: list[dict] = []
+        articles: dict[str, dict] = {}  # 閱讀器文章包（線上版烘焙用，反正文章已經抓了）
         dt_fail = 0
         for i, c in enumerate(probe, 1):
             if job["cancel"]:
@@ -850,6 +872,7 @@ def run_hot(task: dict, job: dict) -> None:
             comments = int(ps.get("total", 0))
             if comments < comment_threshold(c["board"]):
                 continue  # 未過門檻不收錄；之後留言變多自然會在下一輪過線（持續觀測）
+            articles[article_id(c["url"])] = article_package(art)
             dt = _parse_article_dt(art.date_text)
             if dt is None:
                 dt_fail += 1
@@ -900,6 +923,7 @@ def run_hot(task: dict, job: dict) -> None:
         with _jobs_lock:
             job["ledger"] = ledger
             job["fresh_urls"] = [r["url"] for r in accepted_new]  # 哨兵只驗本輪新收錄用
+            job["articles"] = articles  # 本輪新收錄的閱讀器文章包（build_site 烘焙用）
 
         coverage_d = (now_epoch - (results[-1].get("accepted_at") or now_epoch)) / 86400 if results else 0
         note += (f"，moptt 式收錄制（過板級留言門檻即收錄、依收錄時間排序）；"
@@ -1288,7 +1312,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 art = PTTClient(delay=0.2).article(url)
-                self._json({"title": art.title, "body": art.body[:6000]})
+                self._json(article_package(art))
             except Exception as exc:
                 self._json({"error": str(exc)}, 502)
         elif route.startswith("/api/jobs/"):

@@ -70,6 +70,8 @@ class Article:
     body: str
     # 推文統計：{"推":n,"噓":n,"→":n,"total":n,"users":不重複留言人數}
     push_summary: Optional[dict] = None
+    # 結構化留言（依原始順序＝樓層序）：[{"tag":"推/噓/→","user":..,"content":..,"time":..}]
+    comment_list: Optional[list] = None
 
 
 class PTTClient:
@@ -227,13 +229,16 @@ class PTTClient:
             if tag and val:
                 meta[tag.get_text(strip=True)] = val.get_text(" ", strip=True)
 
-        # 留言（推文）統計與內文要在 decompose 前先收
+        # 留言（推文）統計、結構化清單與 TXT 文字都要在 decompose 前先收
         comments: list[str] = []
+        comment_list: list[dict] = []
         push_summary = {"推": 0, "噓": 0, "→": 0, "total": 0, "users": 0}
         users: set[str] = set()
         for p in main.select(".push"):
             tag_el = p.select_one(".push-tag")
             uid_el = p.select_one(".push-userid")
+            content_el = p.select_one(".push-content")
+            dt_el = p.select_one(".push-ipdatetime")
             tag_text = tag_el.get_text(strip=True) if tag_el else ""
             if tag_text.startswith("推"):
                 push_summary["推"] += 1
@@ -242,17 +247,19 @@ class PTTClient:
             else:
                 push_summary["→"] += 1
             push_summary["total"] += 1
-            if uid_el:
-                users.add(uid_el.get_text(strip=True))
+            uid = uid_el.get_text(strip=True) if uid_el else ""
+            if uid:
+                users.add(uid)
+            content = content_el.get_text(" ", strip=True) if content_el else ""
+            comment_list.append({
+                "tag": tag_text or "→",
+                "user": uid,
+                "content": content.lstrip(": ").strip()[:500],
+                "time": dt_el.get_text(strip=True) if dt_el else "",
+            })
             if include_comments:
-                content_el = p.select_one(".push-content")
-                dt_el = p.select_one(".push-ipdatetime")
-                line = " ".join(filter(None, [
-                    tag_text,
-                    (uid_el.get_text(strip=True) if uid_el else "")
-                    + (content_el.get_text(" ", strip=True) if content_el else ""),
-                    dt_el.get_text(strip=True) if dt_el else "",
-                ])).strip()
+                line = " ".join(filter(None, [tag_text, uid + content,
+                                              dt_el.get_text(strip=True) if dt_el else ""])).strip()
                 if line:
                     comments.append(line)
         push_summary["users"] = len(users)
@@ -281,6 +288,7 @@ class PTTClient:
             url=url,
             body=text,
             push_summary=push_summary,
+            comment_list=comment_list,
         )
 
 
