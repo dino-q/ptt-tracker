@@ -34,6 +34,24 @@ class BuildSiteOcrTests(unittest.TestCase):
         self.assertIn("全家 9/3 優惠", result["preview"])
         self.assertIn("全家 9/3 優惠", articles[aid]["body"])
 
+    def test_write_articles_cleans_carried_reader_ocr(self):
+        url = "https://www.ptt.cc/bbs/Lifeismoney/M.4.A.DDD.html"
+        item = {"url": url}
+        package = {"body": build_site.append_ocr_block(
+            "原文", "會員 限定\n2 1 20 0 0 0 219 509 254 78 -1"
+        )}
+        with patch("scripts.build_site.fetch_old_article", return_value=package):
+            import tempfile
+            from pathlib import Path
+            with tempfile.TemporaryDirectory() as tmp:
+                written, carried, fetched = build_site.write_articles(
+                    Path(tmp), [item], {}, carry_cap=1, fetch_budget=0
+                )
+                body = next((Path(tmp) / "articles").glob("*.json")).read_text(encoding="utf-8")
+        self.assertEqual((written, carried, fetched), (1, 1, 0))
+        self.assertIn("會員限定", body)
+        self.assertNotIn("219 509", body)
+
     def test_new_article_keeps_layout_ocr_in_preview_and_reader(self):
         url = "https://www.ptt.cc/bbs/Lifeismoney/M.2.A.BBB.html"
         result = {"url": url, "title": "[情報] 圖片活動", "preview": "原文", "cats": []}

@@ -459,11 +459,57 @@ HOT_BOARD_CATEGORY.update({
     str(k): str(v) for k, v in (CONFIG.get("hot_board_categories") or {}).items()
 })
 
+_configured_always_hot = CONFIG.get("always_include_hot_boards", ["WomenTalk", "Boy-Girl"])
+if not isinstance(_configured_always_hot, list):
+    _configured_always_hot = ["WomenTalk", "Boy-Girl"]
+ALWAYS_INCLUDE_HOT_BOARDS = [
+    str(board).strip()
+    for board in _configured_always_hot
+    if str(board).strip()
+]
+
+
+def select_hot_boards(hot: list[dict], top_count: int,
+                      always_include: list[str]) -> tuple[list[str], list[str]]:
+    """合併人氣前 N 板與固定板，回（完整清單, 本次額外加入的固定板）。"""
+    top_boards = [item["board"] for item in hot[:max(0, top_count)]]
+    boards = list(dict.fromkeys(top_boards))
+    fixed_added: list[str] = []
+    for board in always_include:
+        if board not in boards:
+            boards.append(board)
+            fixed_added.append(board)
+    return boards, fixed_added
+
 
 def hot_cats(board: str) -> list[str]:
     """熱門文的分類＝看板主題；沒對照到的板集中進「其他看板」，
     不漏英文板名當分類（會跟看板篩選膠囊混淆，2026-08-23 Dino 回報）。"""
     return [HOT_BOARD_CATEGORY.get(board, "其他看板")]
+
+
+def select_hot_probes(reps: list[dict], max_detail: int,
+                      reserved_boards: list[str], per_board: int = 5) -> list[dict]:
+    """固定板先各保留少量驗證名額，其餘候選仍依全站推文熱度競爭。"""
+    ordered = sorted(reps, key=lambda item: abs(item.get("score", 0)), reverse=True)
+    reserved: list[dict] = []
+    reserved_urls: set[str] = set()
+    by_board = {
+        board: [item for item in ordered if item.get("board") == board]
+        for board in reserved_boards
+    }
+    # round-robin：名額很小時仍先讓每個固定板各進 1 篇，不被第一個板吃滿。
+    for index in range(max(0, per_board)):
+        for board in reserved_boards:
+            if index >= len(by_board[board]):
+                continue
+            item = by_board[board][index]
+            url = item.get("url")
+            if url and url not in reserved_urls:
+                reserved.append(item)
+                reserved_urls.add(url)
+    remaining = [item for item in ordered if item.get("url") not in reserved_urls]
+    return (reserved + remaining)[:max(0, max_detail)]
 
 
 _MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
@@ -771,6 +817,7 @@ def run_hot(task: dict, job: dict) -> None:
             nuser_map = {b["board"]: b["nuser"] for b in hot}
         except Exception:
             hot = []
+        custom: list[str] = []
         if board:
             boards = [board]
             note = f"{board} 板熱門"
@@ -782,8 +829,13 @@ def run_hot(task: dict, job: dict) -> None:
             else:
                 if not hot:
                     raise RuntimeError("抓不到熱門看板排行。")
-                boards = [b["board"] for b in hot[:int(task.get("hot_boards", 10))]]
-                note = f"全站人氣前 {len(boards)} 板"
+                top_count = int(task.get("hot_boards", 10))
+                boards, fixed_boards = select_hot_boards(
+                    hot, top_count, ALWAYS_INCLUDE_HOT_BOARDS,
+                )
+                note = f"全站人氣前 {min(top_count, len(hot))} 板"
+                if fixed_boards:
+                    note += f"＋固定收錄 {'、'.join(fixed_boards)}"
             job_log(job, f"看板：{'、'.join(boards)}")
 
         def comment_threshold(b: str) -> int:
@@ -853,7 +905,8 @@ def run_hot(task: dict, job: dict) -> None:
             reps.append(rep)
         # 依 |推文分| 排：X 噓爆文才進得了前 max_detail 的驗證池（V3 完整修正）
         reps.sort(key=lambda c: abs(c["score"]), reverse=True)
-        probe = reps[:max_detail]
+        reserved_boards = ALWAYS_INCLUDE_HOT_BOARDS if not board and not custom else []
+        probe = select_hot_probes(reps, max_detail, reserved_boards)
         job_log(job, f"新候選 {len(reps)} 串，驗證前 {len(probe)} 篇留言數是否過收錄門檻")
 
         # 收錄驗證：實際讀文章數總留言，過板級門檻才收錄（accepted_at＝現在）

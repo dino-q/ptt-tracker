@@ -55,6 +55,17 @@ class ImageOcrTests(unittest.TestCase):
         self.assertEqual(image_ocr.clean_ocr_text("| . - _"), "")
         self.assertEqual(image_ocr.clean_ocr_text("  買一送一  \n  9/3 限定 "), "買一送一\n9/3 限定")
 
+    def test_clean_ocr_removes_leaked_tsv_rows_and_cjk_word_spaces(self):
+        dirty = """看 影片 拿 點 數
+2 1 20 0 0 0 219 509 254 78 -1
+5 1 20 1 1 1 219 513 204 74 12.969475 BEREEE
+會員 限定 $500"""
+        self.assertEqual(image_ocr.clean_ocr_text(dirty), "看影片拿點數\n會員限定 $500")
+        self.assertEqual(
+            image_ocr.clean_ocr_text("1 2 3 4 5 6 7 8 9 10 11"),
+            "1 2 3 4 5 6 7 8 9 10 11",
+        )
+
     def test_article_ocr_keeps_partial_success_retryable(self):
         with patch("image_ocr.tesseract_command", return_value="tesseract"), patch(
             "image_ocr.ocr_image_url", side_effect=["優惠 99 元", RuntimeError("逾時")]
@@ -73,6 +84,14 @@ class ImageOcrTests(unittest.TestCase):
         self.assertNotIn("優惠內容", replaced)
         self.assertIn("更新後優惠", replaced)
 
+    def test_normalize_existing_block_cleans_already_deployed_text(self):
+        dirty = image_ocr.append_ocr_block(
+            "原文", "看 影片 拿 點 數\n2 1 20 0 0 0 219 509 254 78 -1"
+        )
+        got = image_ocr.normalize_existing_ocr_block(dirty)
+        self.assertIn("看影片拿點數", got)
+        self.assertNotIn("219 509", got)
+
     def test_tsv_layout_preserves_lines_and_blocks(self):
         tsv = """level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext
 5\t1\t1\t1\t1\t1\t20\t10\t40\t20\t95\t全家
@@ -81,7 +100,7 @@ class ImageOcrTests(unittest.TestCase):
 5\t1\t2\t1\t1\t1\t250\t15\t80\t20\t90\t會員限定
 """
         text, score = image_ocr._layout_text_from_tsv(tsv)
-        self.assertEqual(text, "全家 買一送一\n9/3限定\n\n會員限定")
+        self.assertEqual(text, "全家買一送一\n9/3限定\n\n會員限定")
         self.assertGreater(score, 0)
 
     def test_prepare_image_upscales_small_poster(self):

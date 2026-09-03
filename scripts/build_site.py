@@ -22,7 +22,8 @@ sys.path.insert(0, str(ROOT))
 
 # ♻️ 沿用 server.py 的掃描引擎與內建追蹤項定義
 from ptt_tool import PTTClient
-from image_ocr import append_ocr_block, ocr_article_images, tesseract_command
+from image_ocr import (append_ocr_block, clean_ocr_text, normalize_existing_ocr_block,
+                       ocr_article_images, tesseract_command)
 from server import (CATEGORY_NAMES, article_id, article_package, default_tracks,
                     classify, mark_new_results, run_hot, run_task)
 
@@ -88,7 +89,7 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
         if previous.get("ocr_checked"):
             result["ocr_checked"] = True
             result["image_urls"] = previous.get("image_urls") or []
-            result["ocr_text"] = previous.get("ocr_text") or ""
+            result["ocr_text"] = clean_ocr_text(previous.get("ocr_text") or "")
             result["preview"] = append_ocr_block(result.get("preview", ""), result["ocr_text"])
             aid = article_id(result.get("url") or "")
             if aid in articles:
@@ -165,6 +166,7 @@ def write_articles(out_dir: Path, items: list[dict], fresh: dict,
                 pkg = None
         if pkg is None:
             continue  # 沒有文章包：前端會退回顯示摘要＋原文連結
+        pkg["body"] = normalize_existing_ocr_block(pkg.get("body", ""))
         (art_dir / f"{aid}.json").write_text(json.dumps(pkg, ensure_ascii=False), encoding="utf-8")
         written += 1
     return written, carried, fetched

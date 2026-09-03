@@ -10,6 +10,7 @@
       "省錢板"
     ]
   },
+  "always_include_hot_boards": ["WomenTalk", "Boy-Girl"],
   "weekend_deal_keywords": {
     "stores": [
       "全家",

@@ -161,15 +161,39 @@ def _tesseract_language(command: str) -> str:
     return "eng"
 
 
+def _looks_like_leaked_tsv_row(line: str) -> bool:
+    """辨識真正的 Tesseract TSV 列；不能只看「11 個數字」，以免誤刪優惠序號。"""
+    parts = line.split(maxsplit=11)
+    if len(parts) < 11:
+        return False
+    try:
+        level, page, block, paragraph, line_no, word_no = map(int, parts[:6])
+        left, top, width, height = map(int, parts[6:10])
+        confidence = float(parts[10])
+    except ValueError:
+        return False
+    if (level not in range(1, 6) or page < 1
+            or min(block, paragraph, line_no, word_no, left, top, width, height) < 0):
+        return False
+    if level < 5:
+        return word_no == 0 and confidence == -1 and len(parts) == 11
+    return word_no >= 1 and width > 0 and height > 0 and 0 <= confidence <= 100 and len(parts) == 12
+
+
 def clean_ocr_text(text: str, max_chars: int = 1800) -> str:
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").splitlines()]
     compact: list[str] = []
     for line in lines:
+        # Ubuntu Tesseract 在少數複雜海報會把 TSV 座標列混進文字欄；這些列不是圖片內容。
+        if _looks_like_leaked_tsv_row(line) or line.startswith("level page_num block_num"):
+            continue
         if line or (compact and compact[-1]):
             compact.append(line)
     cleaned = "\n".join(compact).strip()
+    # chi_tra 常把每個中文字切成獨立 word；只合併相鄰中文字，不動價格/日期/英文間距。
+    cleaned = re.sub(r"(?<=[\u3400-\u9fff]) (?=[\u3400-\u9fff])", "", cleaned)
     meaningful = re.sub(r"[^0-9A-Za-z\u3400-\u9fff]", "", cleaned)
-    if len(meaningful) < 6:
+    if len(meaningful) < 4:
         return ""
     return cleaned[:max_chars].rstrip()
 
@@ -319,3 +343,12 @@ def append_ocr_block(text: str, ocr_text: str) -> str:
         return base
     block = f"{marker}\n{ocr_text.strip()}"
     return f"{base}\n\n{block}" if base else block
+
+
+def normalize_existing_ocr_block(text: str) -> str:
+    """讓已部署、已標 checked 的舊 OCR 也能套用新版清理規則。"""
+    marker = "【圖片文字辨識（自動 OCR，請以原圖為準）】"
+    if marker not in (text or ""):
+        return text or ""
+    base, old_ocr = (text or "").split(marker, 1)
+    return append_ocr_block(base, clean_ocr_text(old_ocr))

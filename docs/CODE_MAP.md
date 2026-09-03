@@ -38,6 +38,7 @@
 | `run_author_export(task, job)` | author_export 意圖：♻️ 調用 export_author_creations＋進度/取消 | 🆕 2026-08-22 |
 | `run_hot(task, job)` | hot 意圖 v4：moptt 式收錄制（板級留言門檻→accepted_at→feed 依收錄時間排、舊文回鍋、收錄後凍結、保留10天）；設計依據見 docs/moptt_algorithm.md | 2026-08-23 v4 |
 | `hot_cats(board)` / `HOT_BOARD_CATEGORY` | 熱門文分類＝看板主題（八卦時事/棒球…），未知板用板名；config `hot_board_categories` 可覆蓋 | 🆕 與省錢的通路標籤是兩套 |
+| `select_hot_boards(...)` / `select_hot_probes(...)` / `ALWAYS_INCLUDE_HOT_BOARDS` | 全站熱門固定加入女板與 BG 板，去重後在全站驗證池各保留名額 | 預設 WomenTalk/Boy-Girl；config 可覆蓋 |
 | `_parse_article_dt` / `_thread_key` | 文章時間解析／討論串聚合鍵 | 🆕 |
 | `run_download(task, job)` | download 意圖：指定 urls 逐篇抓全文（可含留言）合併 TXT，job.file 給下載端點 | 🆕 2026-08-22 |
 | `run_job(task, job)` | 意圖分流入口（start_job 用），完成後寫追蹤項快取 | 🆕 |
