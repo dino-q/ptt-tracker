@@ -79,7 +79,7 @@ echo Installation completed successfully.
 echo ==================================================
 echo.
 echo You can now run:
-echo     PTT工具.bat
+echo     the PTT tool bat (or double-click the start bat)
 echo.
 pause
 exit /b 0

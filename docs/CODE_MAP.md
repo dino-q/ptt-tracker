@@ -95,6 +95,24 @@
 | `_line_is_useful(line)` | 🆕 判斷一行有無資訊（≥2 中文字／價格日期數量／≥4 字母品牌名），拿不準回 True | ⚠️ 只在新 OCR 路徑用，且要搭配 `junk_conf_ceiling` 才敢丟；`clean_ocr_text` **不吃**它（否則會回頭誤刪已部署資料） |
 | `scripts/ocr_ab_compare.py` | 🆕 收緊前後並排對照報告（HTML＋JSON） | 必須在 Actions 跑（`.github/workflows/ocr-ab.yml`），本機 Windows 的 tesseract 版本不代表線上。⚠️ 報告刻意不用 `_line_is_useful` 算雜訊率——那是收緊時砍字的規則，拿它當尺必然得 0% |
 
+## 啟動器（.bat ＋ launcher）
+
+| 名稱 | 用途 | 備註 |
+|---|---|---|
+| `啟動.bat` / `安裝.bat` | 雙擊入口，純 ASCII 外殼 | 用萬用字元解析中文檔名的目標（`PTT*.bat`／`????.bat`），檔案本身不含任何中文 |
+| `PTT工具.bat` | 檢查 venv → 叫 `scripts/launcher.py` | 純 ASCII |
+| `scripts/launcher.py` | 🆕 2026-09-04 中文主選單＋分流（[1] server.py／[2] ptt_tool.py／[3] preview_site.py） | **所有中文 UI 放這裡，不要搬回 .bat** |
+| `scripts/preview_site.py` | 🆕 預覽線上版 `site/`（缺資料自動抓線上 JSON），預設 port 8891 | 改 `site/index.html` 要用這個看；`啟動.bat` 的 [1] 是 server.py＋`web/index.html`，**兩者是不同頁面** |
+
+⚠️ **.bat 一律純 ASCII，這是硬規則**（2026-09-04 踩到）：
+
+- cmd.exe 解析 .bat 用系統 OEM 碼頁（台灣機器＝cp950），而專案的 .bat 存 UTF-8。UTF-8 的中文位元組被當成 cp950 雙位元組配對會錯位，**行尾換行被吃成後綴位元組**，下一行整個黏上來、指令消失。
+- 實測 git 原版 `PTT工具.bat` 在 cp950 下有 13 行以上被吃掉（`'ython.exe" server.py'`、`'ho.'`…）；`啟動.bat` 因此 `call` 失敗、又沒有 `pause`，就是「雙擊後閃一下就關掉」。
+- 在 .bat 裡加 `chcp 65001` **只能救一部分**，會不會壞取決於那行的位元組怎麼配對，不可靠。
+- 反方向（.bat 存成 cp950）**也不行**：`server.py`／`ptt_tool.py` 含 cp950 表示不出來的字元（`♻ ⚠ ≈ é`），主控台切 cp950 會在印出時 UnicodeEncodeError。
+- 結論：.bat 只做 `chcp 65001` ＋ 呼叫 Python，中文全部留在 Python。改 .bat 前先跑 `python -c "print(open('X.bat','rb').read().isascii())"` 確認是 True。
+- 換行仍必須 CRLF（全域規則）。
+
 ## 排程
 
 - `PTT_Assistant_DailyCache`：每日 08:30 `pythonw server.py --refresh-only` 更新 auto 追蹤項快取（電池模式也跑）。詳見 `路徑相依_搬移前必讀.md`。
