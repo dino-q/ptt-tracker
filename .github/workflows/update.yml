@@ -19,6 +19,7 @@ concurrency:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -27,7 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "requests>=2.31,<3" "beautifulsoup4>=4.12,<5"
+      - name: 安裝免費繁體中文圖片 OCR
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-tra
+      - run: pip install -r requirements.txt
       - name: 爬 PTT 產生資料
         run: python scripts/build_site.py
       - uses: actions/configure-pages@v5

@@ -22,8 +22,9 @@ sys.path.insert(0, str(ROOT))
 
 # ♻️ 沿用 server.py 的掃描引擎與內建追蹤項定義
 from ptt_tool import PTTClient
+from image_ocr import append_ocr_block, ocr_article_images, tesseract_command
 from server import (CATEGORY_NAMES, article_id, article_package, default_tracks,
-                    mark_new_results, run_hot, run_task)
+                    classify, mark_new_results, run_hot, run_task)
 
 LIVE_BASE = "https://dino-q.github.io/ptt-tracker/data"
 
@@ -66,6 +67,65 @@ def fill_previews(results: list[dict], old: dict | None, articles: dict,
             except Exception:
                 pass
     return reused, fetched
+
+
+def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
+                   budget: int = 12) -> tuple[int, int, int]:
+    """為省錢文補圖片文字。
+
+    已部署資料的 checked/text 直接沿用；每輪只處理有限篇，讓舊資料逐輪補齊、
+    新文章優先處理，也避免 Actions 一次耗時過長。
+    """
+    ocr_available = bool(tesseract_command())
+    old_map = {
+        r.get("url"): r for r in (old or {}).get("results", [])
+        if isinstance(r, dict) and r.get("url")
+    }
+    client = None
+    reused = processed = recognized = 0
+    for result in results:
+        previous = old_map.get(result.get("url")) or {}
+        if previous.get("ocr_checked"):
+            result["ocr_checked"] = True
+            result["image_urls"] = previous.get("image_urls") or []
+            result["ocr_text"] = previous.get("ocr_text") or ""
+            result["preview"] = append_ocr_block(result.get("preview", ""), result["ocr_text"])
+            aid = article_id(result.get("url") or "")
+            if aid in articles:
+                articles[aid]["body"] = append_ocr_block(
+                    articles[aid].get("body", ""), result["ocr_text"]
+                )
+            result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
+            reused += 1
+            continue
+        if not ocr_available:
+            continue
+        if processed >= budget:
+            continue
+        aid = article_id(result.get("url") or "")
+        package = articles.get(aid)
+        if not package:
+            try:
+                if client is None:
+                    client = PTTClient(delay=0.4)
+                package = article_package(client.article(result["url"]))
+            except Exception:
+                continue
+        processed += 1
+        outcome = ocr_article_images(package.get("body", ""), max_images=2)
+        # 無圖片或完整跑完才永久記為 checked；網路暫時失敗者留給下輪重試。
+        result["ocr_checked"] = bool(outcome["checked"])
+        result["image_urls"] = outcome["image_urls"]
+        result["ocr_text"] = outcome["text"]
+        result["preview"] = append_ocr_block(result.get("preview", ""), outcome["text"])
+        package["body"] = append_ocr_block(package.get("body", ""), outcome["text"])
+        if outcome["text"]:
+            recognized += 1
+        result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
+        articles[aid] = package
+    if not ocr_available:
+        print("圖片 OCR：找不到 Tesseract；已沿用舊結果，本輪不辨識新圖片")
+    return reused, processed, recognized
 
 
 def fetch_old_article(aid: str) -> dict | None:
@@ -135,6 +195,13 @@ def main() -> None:
     mark_new_results(money["results"], (old_money or {}).get("results"))
     reused, fetched = fill_previews(money["results"], old_money, fresh_articles)
     print(f"money 摘要：沿用 {reused} 篇、新抓 {fetched} 篇")
+    ocr_reused, ocr_processed, ocr_recognized = fill_image_ocr(
+        money["results"], old_money, fresh_articles,
+    )
+    print(
+        f"money 圖片 OCR：沿用 {ocr_reused} 篇、檢查 {ocr_processed} 篇、"
+        f"辨識到文字 {ocr_recognized} 篇"
+    )
     (out_dir / "money.json").write_text(json.dumps({
         "updated_at": now,
         "note": money["note"],

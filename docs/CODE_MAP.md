@@ -78,6 +78,15 @@
   - 🆕 `triggerRefresh()`（2026-08-23）：「立即更新」鈕＝瀏覽器直呼 GitHub API workflow_dispatch → 輪詢 run 完成 → 偵測 money.json updated_at 變化 → 自動 reload；PAT 存 localStorage `ptt_gh_token`（僅該裝置），401/403 自動清除重導設定。測試：tests/verify_refresh.py（mock GitHub API 三情境）
 - `.github/workflows/update.yml`：台灣 08–23 點每小時 cron（深夜停跑）＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
 
+## image_ocr.py（🆕 免費圖片文字辨識，2026-09-03）
+
+| 名稱 | 用途 | 備註 |
+|---|---|---|
+| `extract_image_urls(text, max_images)` | 從 PTT 文章純文字擷取直接圖片網址，支援 Imgur 頁面網址正規化 | 保持順序、去重 |
+| `ocr_article_images(body, max_images)` | 下載公開圖片並呼叫 Tesseract，回 checked/image_urls/text/errors | 校正方向、放大與對比增強；PSM 11/6 雙版面辨識，依 TSV 座標重組區塊；擋私有網段、8 MB 上限 |
+| `append_ocr_block(text, ocr_text)` | 將 OCR 結果以明確警語併入摘要或全文 | 可重複呼叫，不會重複附加 |
+| `scripts/build_site.py:fill_image_ocr(...)` | 線上省錢資料逐輪補 OCR；沿用舊結果、每輪最多檢查 12 篇 | GitHub Actions 使用 `chi_tra+eng`，不呼叫付費 API |
+
 ## 排程
 
 - `PTT_Assistant_DailyCache`：每日 08:30 `pythonw server.py --refresh-only` 更新 auto 追蹤項快取（電池模式也跑）。詳見 `路徑相依_搬移前必讀.md`。
