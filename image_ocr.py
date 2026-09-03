@@ -15,6 +15,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -180,6 +181,58 @@ def _looks_like_leaked_tsv_row(line: str) -> bool:
     return word_no >= 1 and width > 0 and height > 0 and 0 <= confidence <= 100 and len(parts) == 12
 
 
+@dataclass(frozen=True)
+class OcrTuning:
+    """OCR 收緊參數。
+
+    抽成物件是為了讓 scripts/ocr_ab_compare.py 能用**同一份 pipeline** 跑不同設定做對照，
+    不要為了調參複製一套實作出去改。
+    """
+
+    min_word_conf: float = 50.0   # 舊值 15。海報裝飾字/logo/商品圖在 conf 15-40 幾乎全是噪音
+    drop_junk_lines: bool = True  # 丟掉「無中文也無數量詞」且信心偏低的碎片行
+    junk_conf_ceiling: float = 70.0   # 只有信心低於此值的碎片才敢丟，高信心的照留
+    legacy_score: bool = False    # True＝舊的「字數×平均信心」（會偏袒雜訊多的那一版）
+
+
+#: 線上目前的行為（2026-09-04 之前一直是這組）
+LEGACY_TUNING = OcrTuning(min_word_conf=15.0, drop_junk_lines=False, legacy_score=True)
+#: 本次提案的收緊設定（dataclass 的預設值就是它）
+TIGHTENED_TUNING = OcrTuning()
+
+# ⚠️ 目前仍指向 LEGACY：2026-09-04 Dino 要求「收緊，但先給我看樣本再上線」。
+# 對照報告跑法見 .github/workflows/ocr-ab.yml（Actions → ocr-ab-compare → Run workflow）。
+# Dino 點頭後，把下面這行改成 TIGHTENED_TUNING 就等於上線，不需要動其他地方。
+DEFAULT_TUNING = LEGACY_TUNING
+
+# 「這行看起來有沒有資訊」的保留樣式：價格、數量、日期、時間、長數字
+_USEFUL_PATTERNS = (
+    re.compile(r"[$＄]\s?\d"),
+    re.compile(r"\d+\s*(?:元|折|入|件|杯|支|包|條|盒|瓶|月|日|點|%|％)"),
+    re.compile(r"\d{1,2}\s*[/／]\s*\d{1,2}"),
+    re.compile(r"\d{1,2}:\d{2}"),
+    re.compile(r"\d{3,}"),
+)
+
+
+def _line_is_useful(line: str) -> bool:
+    """判斷一行是不是真的優惠內容。拿不準一律回 True（留著）。
+
+    ⚠️ 絕對不要改成「看起來像亂碼就砍」的粗判：2026-09-03 Angus 抓過用「11 個數字」
+    當規則會誤刪正常的優惠序號。這裡只認「明確帶資訊」的訊號，其餘交給信心門檻把關。
+    """
+    stripped = line.strip()
+    if not stripped:
+        return True                                            # 空行交給 clean_ocr_text
+    if len(re.findall(r"[㐀-鿿]", stripped)) >= 2:
+        return True                                            # 兩個以上中文字＝有內容
+    if any(pattern.search(stripped) for pattern in _USEFUL_PATTERNS):
+        return True                                            # 價格／數量／日期
+    if re.search(r"[A-Za-z]{4,}", stripped):
+        return True                                            # 品牌英文（FamilyMart、eclipse…）
+    return False
+
+
 def clean_ocr_text(text: str, max_chars: int = 1800) -> str:
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").splitlines()]
     compact: list[str] = []
@@ -221,7 +274,7 @@ def _prepare_image(source: Path, target: Path) -> Path:
         return source
 
 
-def _layout_text_from_tsv(tsv: str) -> tuple[str, float]:
+def _layout_text_from_tsv(tsv: str, tuning: OcrTuning = DEFAULT_TUNING) -> tuple[str, float]:
     """依 OCR 座標重組文字行與區塊，避免優惠海報的價錢、日期、限制全黏成一段。"""
     lines: dict[tuple[int, int, int], dict] = {}
     reader = csv.DictReader(io.StringIO(tsv or ""), delimiter="\t")
@@ -231,7 +284,7 @@ def _layout_text_from_tsv(tsv: str) -> tuple[str, float]:
             continue
         try:
             confidence = float(row.get("conf") or -1)
-            if confidence < 15:
+            if confidence < tuning.min_word_conf:
                 continue
             block = int(row.get("block_num") or 0)
             paragraph = int(row.get("par_num") or 0)
@@ -262,19 +315,31 @@ def _layout_text_from_tsv(tsv: str) -> tuple[str, float]:
     for group in ordered_blocks:
         group_lines = []
         for line in sorted(group, key=lambda x: (x["top"], x["left"])):
-            group_lines.append(" ".join(word for _, word in sorted(line["words"])))
+            joined = " ".join(word for _, word in sorted(line["words"]))
+            line_conf = sum(line["conf"]) / len(line["conf"]) if line["conf"] else 0
+            # 只丟「沒有資訊訊號」且「信心本來就低」的碎片；高信心的數字／序號一律留著
+            if (tuning.drop_junk_lines and not _line_is_useful(joined)
+                    and line_conf < tuning.junk_conf_ceiling):
+                continue
+            group_lines.append(joined)
             confidences.extend(line["conf"])
         if group_lines:
             rendered.append("\n".join(group_lines))
     text = clean_ocr_text("\n\n".join(rendered))
-    meaningful = len(re.sub(r"[^0-9A-Za-z\u3400-\u9fff]", "", text))
+    meaningful = len(re.sub(r"[^0-9A-Za-z㐀-鿿]", "", text))
     average_confidence = sum(confidences) / len(confidences) if confidences else 0
-    # 文字量與信心並重；區塊數只給小幅加分，避免把碎裂誤當好排版。
-    score = meaningful * max(average_confidence, 1) + min(len(rendered), 8) * 20
+    if tuning.legacy_score:
+        # 舊計分：字數無上限、信心上限 100 → 字多但髒的那版會贏。留著只為 A/B 對照。
+        score = meaningful * max(average_confidence, 1) + min(len(rendered), 8) * 20
+    else:
+        # 信心佔主導、字數只開根號貢獻，讓「字少但乾淨」贏過「字多但髒」；
+        # 兩版信心接近時字數仍決定勝負（該多讀的還是會多讀）。
+        score = (meaningful ** 0.5) * (max(average_confidence, 1) ** 2)
     return text, score
 
 
-def _run_layout_ocr(command: str, image_path: Path, psm: int) -> tuple[str, float]:
+def _run_layout_ocr(command: str, image_path: Path, psm: int,
+                    tuning: OcrTuning = DEFAULT_TUNING) -> tuple[str, float]:
     proc = subprocess.run(
         [command, str(image_path), "stdout", "-l", _tesseract_language(command),
          "--psm", str(psm), "tsv"],
@@ -283,10 +348,10 @@ def _run_layout_ocr(command: str, image_path: Path, psm: int) -> tuple[str, floa
     )
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "Tesseract 辨識失敗").strip()[:300])
-    return _layout_text_from_tsv(proc.stdout)
+    return _layout_text_from_tsv(proc.stdout, tuning)
 
 
-def ocr_image_url(url: str) -> str:
+def ocr_image_url(url: str, tuning: OcrTuning = DEFAULT_TUNING) -> str:
     """下載單張圖片並回 OCR 文字；任何失敗都交由呼叫端決定是否重試。"""
     command = tesseract_command()
     if not command:
@@ -303,7 +368,7 @@ def ocr_image_url(url: str) -> str:
         errors = []
         for psm in (11, 6):
             try:
-                candidates.append(_run_layout_ocr(command, prepared, psm))
+                candidates.append(_run_layout_ocr(command, prepared, psm, tuning))
             except Exception as exc:
                 errors.append(str(exc))
         if not candidates:
@@ -311,7 +376,8 @@ def ocr_image_url(url: str) -> str:
         return max(candidates, key=lambda item: item[1])[0]
 
 
-def ocr_article_images(body: str, max_images: int = 2) -> dict:
+def ocr_article_images(body: str, max_images: int = 2,
+                       tuning: OcrTuning = DEFAULT_TUNING) -> dict:
     """辨識文章內圖片，回傳可持久化的狀態；單張壞圖不會中止整篇。"""
     urls = extract_image_urls(body, max_images=max_images)
     if not urls:
@@ -322,7 +388,7 @@ def ocr_article_images(body: str, max_images: int = 2) -> dict:
     errors: list[str] = []
     for index, url in enumerate(urls, 1):
         try:
-            text = ocr_image_url(url)
+            text = ocr_image_url(url, tuning)
             if text:
                 blocks.append(f"【圖片 {index}】\n{text}")
         except Exception as exc:

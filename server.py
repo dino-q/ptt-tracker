@@ -201,8 +201,8 @@ def default_tracks() -> list[dict]:
                 "hot_boards": 10,
                 "search_pages": 2,
                 "max_detail": 40,
-                # moptt 式收錄制：feed 依收錄時間保留 10 天，門檻由板級留言數自動決定
-                "days": 10,
+                # moptt 式收錄制：feed 依收錄時間保留（HOT_FEED_DAYS），門檻由板級留言數自動決定
+                "days": HOT_FEED_DAYS,
             },
         },
     ]
@@ -467,6 +467,13 @@ ALWAYS_INCLUDE_HOT_BOARDS = [
     for board in _configured_always_hot
     if str(board).strip()
 ]
+
+# feed 保留期與顯示上限（2026-09-04 由 10 天／400 篇放大）。
+# 動機：女板/BG 這種低流量板能過留言門檻的文常已 1-3 週，前端「不限天數」分類要看得到它們，
+# feed 就得留得夠久、也裝得下。實際涵蓋天數由兩者中先觸底的那個決定（目前是篇數）。
+HOT_FEED_DAYS = int(CONFIG.get("hot_feed_days", 30) or 30)
+HOT_FEED_LIMIT = int(CONFIG.get("hot_feed_limit", 1200) or 1200)
+HOT_PREVIEW_LIMIT = 120  # 只有最前面這些帶內文摘要，控制 JSON 大小
 
 
 def select_hot_boards(hot: list[dict], top_count: int,
@@ -777,7 +784,7 @@ def run_hot(task: dict, job: dict) -> None:
     try:
         client = PTTClient(delay=float(task.get("delay", 0.4)))
         board = (task.get("board") or "").strip()
-        days = max(1, int(task.get("days") or 10))       # feed 保留天數（依 accepted_at）
+        days = max(1, int(task.get("days") or HOT_FEED_DAYS))  # feed 保留天數（依 accepted_at）
         max_detail = int(task.get("max_detail", 40))     # 每輪最多驗證幾篇新候選
         search_pages = max(1, int(task.get("search_pages", 2)))
         now = now_tw()
@@ -968,9 +975,9 @@ def run_hot(task: dict, job: dict) -> None:
             r["cats"] = hot_cats(r.get("board") or "")  # 分類是顯示屬性，跟著最新對照表走不凍結
         results = accepted_new + carried
         results.sort(key=lambda r: r.get("accepted_at") or 0, reverse=True)
-        results = results[:400]
-        # 顯示瘦身：只有最新 120 篇帶內文摘要（本機仍可點「顯示摘要」現抓，線上舊項無摘要）
-        for r in results[120:]:
+        results = results[:HOT_FEED_LIMIT]
+        # 顯示瘦身：只有最新 N 篇帶內文摘要（本機仍可點「顯示摘要」現抓，線上舊項無摘要）
+        for r in results[HOT_PREVIEW_LIMIT:]:
             r["preview"] = ""
 
         # 登記簿：補進本輪新收錄、修剪過期，存回 job 供快取/site 持久化
@@ -985,7 +992,7 @@ def run_hot(task: dict, job: dict) -> None:
         coverage_d = (now_epoch - (results[-1].get("accepted_at") or now_epoch)) / 86400 if results else 0
         note += (f"，moptt 式收錄制（過板級留言門檻即收錄、依收錄時間排序）；"
                  f"本輪新收錄 {len(accepted_new)} 篇、沿用 {len(carried)} 篇，"
-                 f"feed 目前涵蓋約 {coverage_d:.1f} 天（上限 400 篇／{days} 天）")
+                 f"feed 目前涵蓋約 {coverage_d:.1f} 天（上限 {HOT_FEED_LIMIT} 篇／{days} 天）")
         job_log(job, f"完成：feed 共 {len(results)} 篇（新收錄 {len(accepted_new)}／沿用 {len(carried)}）")
         with _jobs_lock:
             job["results"] = results

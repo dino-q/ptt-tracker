@@ -39,6 +39,7 @@
 | `run_hot(task, job)` | hot 意圖 v4：moptt 式收錄制（板級留言門檻→accepted_at→feed 依收錄時間排、舊文回鍋、收錄後凍結、保留10天）；設計依據見 docs/moptt_algorithm.md | 2026-08-23 v4 |
 | `hot_cats(board)` / `HOT_BOARD_CATEGORY` | 熱門文分類＝看板主題（八卦時事/棒球…），未知板用板名；config `hot_board_categories` 可覆蓋 | 🆕 與省錢的通路標籤是兩套 |
 | `select_hot_boards(...)` / `select_hot_probes(...)` / `ALWAYS_INCLUDE_HOT_BOARDS` | 全站熱門固定加入女板與 BG 板，去重後在全站驗證池各保留名額 | 預設 WomenTalk/Boy-Girl；config 可覆蓋 |
+| `HOT_FEED_DAYS` / `HOT_FEED_LIMIT` / `HOT_PREVIEW_LIMIT` | 🆕 2026-09-04 feed 保留期（30 天）、顯示上限（1200 篇）、帶摘要的前 N 篇（120） | 由 10 天／400 篇放大，讓低流量板的舊文留得住。**實際涵蓋天數由先觸底的那個決定（目前是篇數）**；config 可用 `hot_feed_days`／`hot_feed_limit` 覆蓋 |
 | `_parse_article_dt` / `_thread_key` | 文章時間解析／討論串聚合鍵 | 🆕 |
 | `run_download(task, job)` | download 意圖：指定 urls 逐篇抓全文（可含留言）合併 TXT，job.file 給下載端點 | 🆕 2026-08-22 |
 | `run_job(task, job)` | 意圖分流入口（start_job 用），完成後寫追蹤項快取 | 🆕 |
@@ -77,7 +78,10 @@
 - `scripts/build_site.py`：♻️ 調用 server.py 的 run_task/run_hot 產 `site/data/*.json`（Actions 與本機都能跑）。
 - `site/index.html`：唯讀靜態頁（省錢優惠＋熱門文章），部署在 https://dino-q.github.io/ptt-tracker/
   - 🆕 `triggerRefresh()`（2026-08-23）：「立即更新」鈕＝瀏覽器直呼 GitHub API workflow_dispatch → 輪詢 run 完成 → 偵測 money.json updated_at 變化 → 自動 reload；PAT 存 localStorage `ptt_gh_token`（僅該裝置），401/403 自動清除重導設定。測試：tests/verify_refresh.py（mock GitHub API 三情境）
+  - 🆕 `CAT_ALL_TIME`／`allTimeOn()`（2026-09-04）：熱門的「不限天數」分類。低流量板（女板/BG）能過留言門檻的文常已 1-3 週，會被預設 3 天窗整批濾掉——資料在 hot.json，畫面上一篇都沒有。此分類跳過 `dayOk`、固定依收錄時間新→舊排，並隱藏期間／排序鈕。測試：`tests/verify_alltime_tab.py`（真瀏覽器，斷言對著行為寫）
+  - ⚠️ `dayFiltered` 必須寫成 `results.filter(r => dayOk(r))`。寫 `results.filter(dayOk)` 會讓 `filter` 的第二個參數（索引）跑進 `dayOk` 的 `allTime`，索引 ≥1 全是 truthy → 天數過濾整個失效（2026-09-04 實際踩到）
 - `.github/workflows/update.yml`：台灣 08–23 點每小時 cron（深夜停跑）＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
+- `.github/workflows/ocr-ab.yml`：🆕 手動觸發的 OCR 收緊 A/B 對照，只產 artifact、不部署。
 
 ## image_ocr.py（🆕 免費圖片文字辨識，2026-09-03）
 
@@ -87,6 +91,9 @@
 | `ocr_article_images(body, max_images)` | 下載公開圖片並呼叫 Tesseract，回 checked/image_urls/text/errors | 校正方向、放大與對比增強；PSM 11/6 雙版面辨識，依 TSV 座標重組區塊；擋私有網段、8 MB 上限 |
 | `append_ocr_block(text, ocr_text)` | 將 OCR 結果以明確警語併入摘要或全文 | 可重複呼叫，不會重複附加 |
 | `scripts/build_site.py:fill_image_ocr(...)` | 線上省錢資料逐輪補 OCR；沿用舊結果、每輪最多檢查 12 篇 | GitHub Actions 使用 `chi_tra+eng`，不呼叫付費 API |
+| `OcrTuning` / `LEGACY_TUNING` / `TIGHTENED_TUNING` / `DEFAULT_TUNING` | 🆕 2026-09-04 OCR 收緊參數（字級信心門檻、碎片過濾、擇優計分）。全部 OCR 函式都吃 `tuning=` | **調參一律傳這個物件，不要複製一份 pipeline 出去改。** `DEFAULT_TUNING` 目前＝`LEGACY_TUNING`（線上行為未變）；Dino 看過 A/B 後改成 `TIGHTENED_TUNING` 即上線 |
+| `_line_is_useful(line)` | 🆕 判斷一行有無資訊（≥2 中文字／價格日期數量／≥4 字母品牌名），拿不準回 True | ⚠️ 只在新 OCR 路徑用，且要搭配 `junk_conf_ceiling` 才敢丟；`clean_ocr_text` **不吃**它（否則會回頭誤刪已部署資料） |
+| `scripts/ocr_ab_compare.py` | 🆕 收緊前後並排對照報告（HTML＋JSON） | 必須在 Actions 跑（`.github/workflows/ocr-ab.yml`），本機 Windows 的 tesseract 版本不代表線上。⚠️ 報告刻意不用 `_line_is_useful` 算雜訊率——那是收緊時砍字的規則，拿它當尺必然得 0% |
 
 ## 排程
 

@@ -324,6 +324,10 @@ let VIEW = "money";
 let ACTIVE_CAT = "全部";
 let SORT = "time";   // 最新熱門＝moptt 收錄時間 feed 序
 let DAYS = 3;
+// 「不限天數」分類：低流量板（女板/BG）能過留言門檻的文常已 1-3 週，會被預設 3 天窗口整批濾掉。
+// 這個分類跳過天數過濾、固定依收錄時間新→舊排，讓那些板真的看得到。保留期由後端 feed 決定。
+const CAT_ALL_TIME = "不限天數";
+const allTimeOn = () => ACTIVE_CAT === CAT_ALL_TIME;
 
 function loadPins() {
   try { return new Set(JSON.parse(localStorage.getItem("ptt_pins") || "[]")); }
@@ -424,7 +428,8 @@ function hotPostTs(r) {
   return d.getTime();
 }
 
-function dayOk(r) {
+function dayOk(r, allTime = allTimeOn()) {
+  if (allTime) return true;
   const isHot = r.accepted_at !== undefined;
   if (isHot && HOTMODE === "all") return true;
   const basis = isHot ? hotPostTs(r) : (r.ts ? r.ts * 1000 : null);
@@ -433,7 +438,9 @@ function dayOk(r) {
   midnight.setHours(0, 0, 0, 0);
   return basis >= midnight.getTime() - (DAYS - 1) * 86400e3;
 }
-function dayFiltered(results) { return results.filter(dayOk); }
+// 必須包一層 arrow：filter 會多傳 (index, array)，直接給 dayOk 會讓索引跑進第二個參數 allTime，
+// 索引 >=1 都是 truthy → 天數過濾整個失效（2026-09-04 實際踩到）
+function dayFiltered(results) { return results.filter(r => dayOk(r)); }
 
 async function load(view) {
   if (DATA[view]) return DATA[view];
@@ -456,20 +463,27 @@ function renderTabs(d) {
   const box = $("cat-tabs");
   box.innerHTML = "";
   const isHotData = d.results.some(r => r.accepted_at !== undefined);
-  $("mode-toggle").style.display = isHotData ? "flex" : "none";
+  // 「不限天數」自帶期間與排序語意，模式／天數兩個控制項在它底下沒有意義
+  $("mode-toggle").style.display = (isHotData && !allTimeOn()) ? "flex" : "none";
   document.querySelectorAll("#mode-toggle .tab").forEach(t =>
     t.classList.toggle("active", t.dataset.mode === HOTMODE));
   $("day-filter").style.display =
-    (d.results.some(r => r.ts) && !(isHotData && HOTMODE === "all")) ? "flex" : "none";
+    (d.results.some(r => r.ts) && !(isHotData && HOTMODE === "all") && !allTimeOn()) ? "flex" : "none";
   // 置頂項永遠顯示，計數也算進去
   const dayBase = d.results.filter(r => PINS.has(r.url) || dayOk(r));
   renderBoardFilter(dayBase);  // 看板 chips 含被隱藏的板（要留著讓使用者點回來）
   const base = dayBase.filter(r => PINS.has(r.url) || boardShown(r));
-  const hasCats = base.some(r => (r.cats || []).length);
+  // 頁籤的數字必須等於「點下去之後會看到幾篇」。一般分類一律按天數窗口算、不限天數那顆按全集算，
+  // 才不會因為目前選中哪一顆而讓其他顆的數字跟著跳。
+  const catBase = d.results
+    .filter(r => PINS.has(r.url) || dayOk(r, false))
+    .filter(r => PINS.has(r.url) || boardShown(r));
+  const allTimeCount = d.results.filter(r => PINS.has(r.url) || boardShown(r)).length;
+  const hasCats = catBase.some(r => (r.cats || []).length) || base.some(r => (r.cats || []).length);
   if (!hasCats) { box.style.display = "none"; return; }
   // 分類頁籤由結果自身推導：已知標籤照既定順序，其餘（熱門的看板主題）依篇數排
   const counts = {};
-  for (const r of base) for (const c of (r.cats || [])) counts[c] = (counts[c] || 0) + 1;
+  for (const r of catBase) for (const c of (r.cats || [])) counts[c] = (counts[c] || 0) + 1;
   const canon = d.categories || [];
   const names = Object.keys(counts).sort((a, b) => {
     const ia = canon.indexOf(a), ib = canon.indexOf(b);
@@ -477,11 +491,13 @@ function renderTabs(d) {
     return counts[b] - counts[a];
   });
   names.unshift("全部");
-  if (base.some(r => !(r.cats || []).length)) names.push("其他");
+  if (catBase.some(r => !(r.cats || []).length)) names.push("其他");
+  if (isHotData) names.splice(1, 0, CAT_ALL_TIME);  // 只有熱門有收錄制／回鍋的概念
   for (const n of names) {
-    const count = n === "全部" ? base.length
-      : n === "其他" ? base.filter(r => !(r.cats || []).length).length
-      : base.filter(r => (r.cats || []).includes(n)).length;
+    const count = n === CAT_ALL_TIME ? allTimeCount
+      : n === "全部" ? catBase.length
+      : n === "其他" ? catBase.filter(r => !(r.cats || []).length).length
+      : catBase.filter(r => (r.cats || []).includes(n)).length;
     const b = document.createElement("button");
     b.className = "tab" + (n === ACTIVE_CAT ? " active" : "");
     b.textContent = `${n} ${count}`;
@@ -497,16 +513,19 @@ function applyFilters(d) {
   // 置頂項不受天數/分類過濾影響永遠排最前；但文字搜尋要一起過
   const pinned = d.results.filter(r => PINS.has(r.url) && matchQ(r));
   let list = dayFiltered(d.results).filter(r => !PINS.has(r.url)).filter(boardShown);
-  if (ACTIVE_CAT !== "全部") {
+  // 不限天數是「範圍」不是標籤，沒有文章的 cats 會等於它——照一般分類去比對會濾成空清單
+  if (ACTIVE_CAT !== "全部" && !allTimeOn()) {
     list = ACTIVE_CAT === "其他"
       ? list.filter(r => !(r.cats || []).length)
       : list.filter(r => (r.cats || []).includes(ACTIVE_CAT));
   }
   list = list.filter(matchQ);
   const sortable = list.some(r => r.rising !== undefined);
-  $("sort-toggle").style.display = sortable ? "flex" : "none";
+  // 不限天數固定依收錄時間新→舊，排序鈕在它底下沒有意義
+  $("sort-toggle").style.display = (sortable && !allTimeOn()) ? "flex" : "none";
   if (sortable) {
-    const key = SORT === "comments" ? (r => r.comments || 0)
+    const key = allTimeOn() ? (r => r.ts || 0)
+      : SORT === "comments" ? (r => r.comments || 0)
       : SORT === "time" ? (r => r.ts || 0)
       : (r => r.rising || 0);
     list = [...list].sort((a, b) => key(b) - key(a));

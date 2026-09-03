@@ -1,0 +1,37 @@
+name: ocr-ab-compare
+
+# OCR 收緊前後的並排對照，只給人看、不部署任何東西。
+# 為什麼要跑在 Actions：正式 OCR 用的是 ubuntu runner 上這一版 tesseract ＋ chi_tra 語言包，
+# 在 Windows 本機裝另一版比出來的結果不代表線上。
+# 跑法：Actions 分頁 → ocr-ab-compare → Run workflow → 完成後下載 artifact「ocr-ab-report」。
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "要比對幾篇有圖的文章"
+        required: false
+        default: "6"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安裝免費繁體中文圖片 OCR
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-tra
+      - run: pip install -r requirements.txt
+      - name: 產生 A/B 對照報告
+        run: python scripts/ocr_ab_compare.py --out out/ocr_ab --limit "${{ inputs.limit || '6' }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocr-ab-report
+          path: out/ocr_ab
+          retention-days: 14
