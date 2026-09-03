@@ -25,7 +25,7 @@
 8. **色彩對比**：實際計算既有色票（`--ink-2` #5b6675 對白底 ≈5.8:1、`--warn` #b4552d 對白底 ≈4.9:1、`--accent` #2f6f5e 對白底/accent 對白字 ≈5.9:1）皆已通過 WCAG AA 4.5:1，這次沒有更動任何色值，只在既有配色上補齊狀態與層級。
 
 ## 產物位置
-- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`
+- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html`
   - 全部改動集中在 `<style>` 區塊（第 7–185 行）與三處小型 HTML 補充（`ask-input`/`filter-box` 的 `<label class="sr-only">`、`#log` 加 `aria-live`）
   - `id`、JS 用到的 class（`track`/`run`/`del`/`name`/`item`/`open`/`preview`/`toggle`/`chip`/`chips`/`card`/`meta`/`empty`/`error` 等）與所有事件綁定、fetch 路徑**完全未變動**
 - 執行方式：照專案既有方式跑 `server.py`（`http://127.0.0.1:8877`），重新整理頁面即可看到效果
@@ -69,7 +69,7 @@
 5. **守住的底線**：完全沒碰 `<script>`；沒新增任何顏色值（全部沿用既有 `--accent`/`--ink-2`/`--line` token）；沒加陰影、圖示字型、裝飾色塊；沒有為了「更好看」把 select 換成自製下拉元件（保留原生 `<select>`，符合 `system-controls` 準則——能用原生控制項就不要自製）。
 
 ### 產物位置
-- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`（只動 `<style>` 區塊內 `.tracks`、`.tab`、`.track .cachetime`、`.track .name` 四處規則，`<script>` 完全未動）
+- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html`（只動 `<style>` 區塊內 `.tracks`、`.tab`、`.track .cachetime`、`.track .name` 四處規則，`<script>` 完全未動）
 - 執行方式：`server.py` 跑起來後開 `http://127.0.0.1:8877`，重新整理即可看到效果
 
 ### 自審結果（④ 心法）
@@ -110,7 +110,7 @@
 5. **克制**：沒有新增顏色值（`--accent-soft`/`--chip`/`--line` 都是既有 token）；沒有加陰影堆疊、圖示、裝飾色塊；兩層 pill 差異靠「容器有無＋填色深淺＋尺寸」三個既有手法組合，沒有引入新的視覺語言（例如底線導覽、圖示切換等）——維持整站只有一種導覽語彙（pill）的一致性。
 
 ### 產物位置
-- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`
+- 直接編輯：`C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html`
   - CSS：`.views`/`.viewbtn`、`.tabs`/`.tab`、`#results-head`、新增 `.export-actions`、`.checkline` 補 padding、`@media (max-width:420px)` 補三條規則
   - HTML：`#results-head` 內把既有 `#dl-comments` checkbox 與 `#btn-export` 按鈕包進新的 `<div class="export-actions">` 容器（純結構包裝，兩者 id/class 原樣保留，`btn-export` 仍是 `.ghost.runbtn`）
   - `<script>` 完全未動；所有硬性保留的 id/data-view/class（`viewbtn`/`active`/`view`/`tab`/`track`/`run`/`del`/`name`/`clickable`/`cachetime`/`runbtn`/`item`/`open`/`preview`/`toggle`/`chip`/`chips`/`meta`/`card`/`empty`/`error`/`checkline`）一律未改名
@@ -158,8 +158,8 @@
 
 ### 產物位置
 - 直接編輯（兩份文件改法一致）：
-  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html` — CSS 新增 `#sort-toggle`／`#sort-toggle .sort-label`／`#sort-toggle .tab`／`#sort-toggle .tab.active`／`.meta-metric` 規則、`.meta` 補 `line-height`；HTML 在 `#sort-toggle` 內加 `<span class="sort-label">排序</span>`；JS `renderItems()` 的 meta 組裝邏輯改為「素色文字 + 兩個 `.meta-metric` span」
-  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html` — 對應位置同步同一組 CSS／HTML／JS 改法
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html` — CSS 新增 `#sort-toggle`／`#sort-toggle .sort-label`／`#sort-toggle .tab`／`#sort-toggle .tab.active`／`.meta-metric` 規則、`.meta` 補 `line-height`；HTML 在 `#sort-toggle` 內加 `<span class="sort-label">排序</span>`；JS `renderItems()` 的 meta 組裝邏輯改為「素色文字 + 兩個 `.meta-metric` span」
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\site\index.html` — 對應位置同步同一組 CSS／HTML／JS 改法
   - 所有既有 `id`／`data-sort`／`data-view`／JS 用到的 class（`tab`／`active`／`tabs`／`meta`）**一律未改名**，`#sort-toggle` 的 `style.display` 顯隱邏輯完全交給 JS，本輪 CSS 未設定任何 `display` 屬性去蓋過它
 - 執行方式：`web/index.html` 照專案既有方式跑 `server.py`（`http://127.0.0.1:8877`），重新整理熱門頁即可看到效果；`site/index.html` 為靜態唯讀頁，直接開檔或部署後查看即可
 
@@ -200,8 +200,8 @@
 
 ### 產物位置
 - 直接編輯（兩份文件改法一致）：
-  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html` — `:root` 的 `--chip` 色值調整；新增 `#day-filter + #sort-toggle` 規則；`#to-top`／`#to-top:hover` 背景與陰影調整
-  - `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html` — 同步同一組三處改法
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html` — `:root` 的 `--chip` 色值調整；新增 `#day-filter + #sort-toggle` 規則；`#to-top`／`#to-top:hover` 背景與陰影調整
+  - `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\site\index.html` — 同步同一組三處改法
   - 所有既有 `id`／`data-days`／`data-sort`／JS 用到的 class（`day-filter`／`sort-toggle`／`act`／`badge-pin`／`to-top`／`item-actions`／`tab`／`active`）**一律未改名**；`#day-filter`／`#to-top` 的 `display` 顯隱仍完全交給 JS（`style.display`），本輪 CSS 未設定任何 `display` 屬性去蓋過它
 - 執行方式：`web/index.html` 照專案既有方式跑 `server.py`（`http://127.0.0.1:8877`），重新整理即可看到效果；`site/index.html` 為靜態唯讀頁，直接開檔或部署後查看即可
 
@@ -243,9 +243,9 @@
 7. **克制**：沒有加漸層、玻璃感、裝飾色塊、圖示字型、emoji；沒有新增第三種按鈕語言（仍只有 primary/ghost 兩級）；沒有把 `.views` 或 `#sort-toggle`/`#day-filter` 這兩套已經分清楚語彙的控制項再改造——這兩套是前幾輪已經打磨對的部分，這次原樣沿用只套新色票，沒有為了「整頁重設計」而動不需要動的東西。
 
 ### 產物位置
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`——`<style>` 區塊全面重寫（新 token 系統）；`<body>` 只動兩處：① `header.site` 內加 `.mark` 色塊 + `.head-text` 包裝；② `#results` 內把既有子元素收進新增的 `.results-toolbar` / `.filter-groups` 包裝。`<script>` 區塊逐行核對後**完全未動**。
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html`——同一套改法（`<style>` 重寫＋`header`/`.results-toolbar`／`.filter-groups` 包裝），`<script>` 未動。
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\design.md`（新建，專案根目錄）——鎖定的設計系統，記載 genre/palette/typography/spacing/motion/CTA voice/巨觀結構判定，之後任何人改這兩份頁面先讀這份。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html`——`<style>` 區塊全面重寫（新 token 系統）；`<body>` 只動兩處：① `header.site` 內加 `.mark` 色塊 + `.head-text` 包裝；② `#results` 內把既有子元素收進新增的 `.results-toolbar` / `.filter-groups` 包裝。`<script>` 區塊逐行核對後**完全未動**。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\site\index.html`——同一套改法（`<style>` 重寫＋`header`/`.results-toolbar`／`.filter-groups` 包裝），`<script>` 未動。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\design.md`（新建，專案根目錄）——鎖定的設計系統，記載 genre/palette/typography/spacing/motion/CTA voice/巨觀結構判定，之後任何人改這兩份頁面先讀這份。
 - 執行方式：`web/index.html` 照舊跑 `server.py`（`http://127.0.0.1:8877`）；`site/index.html` 為靜態頁，建議用 http server 開（本輪用 `file://` 直接開檔測試時 `fetch()` 因瀏覽器同源限制會失敗顯示「載入失敗」，這是測試方法本身的限制，不是本輪改動造成，部署後走 http(s) 正常）。
 
 ### 自審結果（④ 心法 + hallmark slop-test 自評）
@@ -285,8 +285,8 @@
 5. **克制**：沒有加 scroll fade／漸層陰影去暗示「還有更多內容可捲」——技術上可行（多重 background-image 的 scroll-shadow 手法），但需要精準抓 `--color-surface-2` 色值疊層，出錯風險（露出接縫或色差）大於帶來的效益，且 design.md 沒有這個視覺語彙，判定為「為了炫技加裝飾」而捨棄；沒有改用 CSS Grid 重寫 `.cmt` 版面（原本 flex + order 就能達到效果，沒必要換一套佈局技術製造新的維護成本）；沒有加 zebra 條紋背景（既有 dashed border-bottom 已經足夠分隔 139 列，加背景色會是視覺上多一層裝飾）。
 
 ### 產物位置
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`——`.preview`／`.art-img`／`.cmt` 三處 CSS 規則微調；`@media (max-width: 26.25rem)` 既有區塊內新增 `.cmt-time`／`.cmt-content` 兩條規則。
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html`——同一組 CSS 改法；另新增 `@media (max-width: 26.25rem)` 區塊（原本沒有），只放這次的 `.cmt-time`/`.cmt-content` 兩條規則。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html`——`.preview`／`.art-img`／`.cmt` 三處 CSS 規則微調；`@media (max-width: 26.25rem)` 既有區塊內新增 `.cmt-time`／`.cmt-content` 兩條規則。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\site\index.html`——同一組 CSS 改法；另新增 `@media (max-width: 26.25rem)` 區塊（原本沒有），只放這次的 `.cmt-time`/`.cmt-content` 兩條規則。
 - 兩檔的 `<script>` 區塊、`id`、JS 用到的 class（`preview`/`toggle`/`open`/`art-body`/`art-line`/`art-img`/`art-comments-head`/`cmt`/`cmt-floor`/`cmt-tag`/`push`/`boo`/`arrow`/`cmt-user`/`cmt-content`/`cmt-time`）與 `createElement`/`textContent` 渲染邏輯**逐行核對後完全未動**。
 - 執行方式：`web/index.html` 照舊跑 `server.py`（`http://127.0.0.1:8877`）；`site/index.html` 建議用 http server 開（`file://` 會因 `fetch()` 同源限制載入失敗，跟本輪改動無關，屬既有已知限制）。
 
@@ -324,8 +324,8 @@
 7. **克制**：沒有幫每組控制項加背景框/ 卡中卡（會製造裝飾感、跟 hallmark「無裝飾、靠留白與字重分層」的方向衝突）；`#board-filter` 沒有勉強套用「凹槽分段」樣式（它是多選、非分段單選，維持外框 pill 語彙才符合語意，不是為了「統一」而錯誤統一）；沒有加箭頭圖示/rotate 動畫在 `#filter-btn` 上——JS 本身已把展開/收合狀態寫進按鈕文字（`▾`/`▴`），CSS 加圖示會跟文字內容打架，違反鐵則也是多餘裝飾。
 
 ### 產物位置
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\web\index.html`——`<style>` 內：分段控制選擇器群組（併入 `#mode-toggle`）、`#filter-btn`／`.has-active`、`#filter-panel`（含 `@starting-style`）、`.export-actions`、`#no-data`、`#items .empty`、`@media (max-width:26.25rem)` 內 `#results-head`/`#filter-box` 幾條規則；`<body>` 內僅在 `#mode-toggle` 加一個 `<span class="sort-label">模式</span>`。
-- `C:\Users\AG_Di\Desktop\automation\Claude_code\PTT_Assistant\site\index.html`——同一組 CSS 改法（含新增的 mobile `#count`/`#filter-box` 規則，原本這個檔案的媒體查詢區塊沒有對應項目）；`<body>` 同樣補 `#mode-toggle` 的 `模式` 標籤。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\web\index.html`——`<style>` 內：分段控制選擇器群組（併入 `#mode-toggle`）、`#filter-btn`／`.has-active`、`#filter-panel`（含 `@starting-style`）、`.export-actions`、`#no-data`、`#items .empty`、`@media (max-width:26.25rem)` 內 `#results-head`/`#filter-box` 幾條規則；`<body>` 內僅在 `#mode-toggle` 加一個 `<span class="sort-label">模式</span>`。
+- `C:\Users\AG_Di\Desktop\automation\Claude_code\side_project\PTT_Assistant\site\index.html`——同一組 CSS 改法（含新增的 mobile `#count`/`#filter-box` 規則，原本這個檔案的媒體查詢區塊沒有對應項目）；`<body>` 同樣補 `#mode-toggle` 的 `模式` 標籤。
 - 兩份檔案的 `<script>`、所有 `id`/`class`/`data-*`（`filter-btn`/`filter-panel`/`has-active`/`mode-toggle`/`day-filter`/`sort-toggle`/`board-filter`/`bf-toggle`/`export-actions`/`dl-comments`/`btn-export` 等）與事件綁定邏輯**逐行核對後完全未動**；`#filter-panel` 的 `display` 仍完全由 JS 控制（flex/none），CSS 只加了不影響該屬性判讀的 opacity/transform 過渡。
 - 執行方式：`web/index.html` 照舊跑既有 server（`http://127.0.0.1:8877`）；`site/index.html` 本機測試需自起靜態伺服器（如 `python -m http.server`），`file://` 會因 `fetch()` 同源限制載入失敗，屬既有已知限制、與本輪改動無關。
 
