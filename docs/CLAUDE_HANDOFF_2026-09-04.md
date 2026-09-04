@@ -131,7 +131,10 @@ Tesseract 結構上做不到這件事：優惠海報是格狀排版，品項、�
 
 ## 還沒做的
 
-- **Notion 專案事件同步 2026-09-03**：原交接文件的最後一項，仍未執行。
+- ~~Notion 專案事件同步 2026-09-03~~ **不需要做**（09-04 查證）：
+  `state/sync_stamps.json` 的 `events_synced_through` 已經是 `2026-09-03`，
+  而 `daily_review/reviews/` 最新的檔就是 `2026-09-03.md`——沒有落差。
+  原交接文件寫的「只同步到 09-02」是當時的狀態，後來已補完；我照抄進來時沒查證。
 - **read_txt 換 port（16 處）未提交**：跟 09-03 資料夾重整的改動混在一起，需要分開確認。
 - **Gemini_ReadPic 沒有 remote**：已在本機 commit（`94cc050`），要不要建 GitHub repo 未問。
   依全域規則，建 remote 前要先有 `GIT_PUBLISH.md` 並問過 Dino。
