@@ -38,8 +38,11 @@ echo "金鑰：已讀到 ${#KEY} 個字元（不顯示內容）"
 echo "目標：$REPO"
 echo
 
-# 用 stdin 傳值，不放進指令列——指令列會進 shell history 與行程清單
-if printf '%s' "$KEY" | gh secret set "$NAME" --repo "$REPO" --body - ; then
+# 用 stdin 傳值，不放進指令列——指令列會進 shell history 與行程清單。
+# ⚠️ 不可以寫 `--body -`：gh 的 --body 是「值本身」，給 - 就會把 secret 設成字面的「-」，
+#    Actions 拿到的是無效金鑰、而且 set 指令還會成功，看不出錯（2026-09-04 實際踩到）。
+#    正確做法是**完全不給 --body**，gh 就會從 stdin 讀。
+if printf '%s' "$KEY" | gh secret set "$NAME" --repo "$REPO" ; then
   echo
   echo "[完成] 已設定。目前這個 repo 的 secrets："
   gh secret list --repo "$REPO"
