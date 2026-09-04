@@ -102,19 +102,34 @@
     `fillArticle` 根本不會執行——驗收會在驗一個沒被觸發的程式路徑。
   - ⚠️ `dayFiltered` 必須寫成 `results.filter(r => dayOk(r))`。寫 `results.filter(dayOk)` 會讓 `filter` 的第二個參數（索引）跑進 `dayOk` 的 `allTime`，索引 ≥1 全是 truthy → 天數過濾整個失效（2026-09-04 實際踩到）
 - `.github/workflows/update.yml`：台灣 08–23 點每小時 cron（深夜停跑）＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
-- `.github/workflows/ocr-ab.yml`：🆕 手動觸發的 OCR 收緊 A/B 對照，只產 artifact、不部署。
 
-## image_ocr.py（🆕 免費圖片文字辨識，2026-09-03）
+## image_ocr.py（圖片辨識，2026-09-04 換成 Gemini）
+
+**為什麼換掉 Tesseract**：實測輸出 46% 是雜訊（最差一篇 73%）。這不是調參問題——
+優惠海報是格狀排版，品項、價格、期間、取得管道分散在不同格子裡，逐字擷取的 OCR
+結構上就配不起來。Gemini 讀同一張圖回的是「大杯拿鐵／買1送1／100→50元／APP」。
+⛔ **不要提議「調 PSM／加前處理再試一次」**，那條路 09-03～09-04 走過了。
 
 | 名稱 | 用途 | 備註 |
 |---|---|---|
-| `extract_image_urls(text, max_images)` | 從 PTT 文章純文字擷取直接圖片網址，支援 Imgur 頁面網址正規化 | 保持順序、去重 |
-| `ocr_article_images(body, max_images)` | 下載公開圖片並呼叫 Tesseract，回 checked/image_urls/text/errors | 校正方向、放大與對比增強；PSM 11/6 雙版面辨識，依 TSV 座標重組區塊；擋私有網段、8 MB 上限 |
-| `append_ocr_block(text, ocr_text)` | 將 OCR 結果以明確警語併入摘要或全文 | 可重複呼叫，不會重複附加 |
-| `scripts/build_site.py:fill_image_ocr(...)` | 線上省錢資料逐輪補 OCR；沿用舊結果、每輪最多檢查 12 篇 | GitHub Actions 使用 `chi_tra+eng`，不呼叫付費 API |
-| `OcrTuning` / `LEGACY_TUNING` / `TIGHTENED_TUNING` / `DEFAULT_TUNING` | 🆕 2026-09-04 OCR 收緊參數（字級信心門檻、碎片過濾、擇優計分）。全部 OCR 函式都吃 `tuning=` | **調參一律傳這個物件，不要複製一份 pipeline 出去改。** `DEFAULT_TUNING` 目前＝`LEGACY_TUNING`（線上行為未變）；Dino 看過 A/B 後改成 `TIGHTENED_TUNING` 即上線 |
-| `_line_is_useful(line)` | 🆕 判斷一行有無資訊（≥2 中文字／價格日期數量／≥4 字母品牌名），拿不準回 True | ⚠️ 只在新 OCR 路徑用，且要搭配 `junk_conf_ceiling` 才敢丟；`clean_ocr_text` **不吃**它（否則會回頭誤刪已部署資料） |
-| `scripts/ocr_ab_compare.py` | 🆕 收緊前後並排對照報告（HTML＋JSON） | 必須在 Actions 跑（`.github/workflows/ocr-ab.yml`），本機 Windows 的 tesseract 版本不代表線上。⚠️ 報告刻意不用 `_line_is_useful` 算雜訊率——那是收緊時砍字的規則，拿它當尺必然得 0% |
+| `extract_image_urls(text, max_images)` | 從 PTT 文章純文字擷取直接圖片網址，支援 Imgur 頁面網址正規化 | ♻️ 換引擎時原樣保留：這層跟用哪個引擎無關 |
+| `_is_public_url` / `_download_image` | 白名單圖床＋每次 redirect 前重驗＋公網 IP＋8 MB 上限 | ♻️ 同上保留。⚠️ 驗證必須在**跟 redirect 之前**，等 requests 跟完 SSRF 已經發生 |
+| `_sniff_mime(data)` | 🆕 靠 magic bytes 判圖片型別 | 副檔名是 PTT 文章作者寫的，不能信 |
+| `read_image_url(url)` | 🆕 下載單張圖交給 Gemini 讀，回純文字 | 模型回「無相關資訊」時轉成空字串，不要把這四個字塞進使用者的優惠摘要 |
+| `ocr_article_images(body, max_images)` | 讀文章內圖片，回 checked/image_urls/text/errors/**engine** | 沒圖片就不打 API；單張壞圖不中止整篇；**有任何錯就不標 checked**，下一輪重讀 |
+| `OCR_ENGINE`（目前 `"gemini-1"`） | 🆕 引擎版本標記 | **換引擎時改這個字串**，`build_site` 就會把舊引擎讀過的全部重讀一次 |
+| `strip_ocr_block(text)` | 🆕 移除任何版本的辨識區塊（含舊版 `自動 OCR` 標題） | 換引擎重讀前一定要先做，否則上一代亂碼留在使用者眼前 |
+| `append_ocr_block(text, ocr_text)` | 將結果以明確警語併入摘要或全文 | 可重複呼叫，不會重複附加；傳空字串＝移除既有區塊 |
+| `scripts/build_site.py:fill_image_ocr(...)` | 線上省錢資料逐輪補圖片文字；每輪上限 12 篇 | ⚠️ **沿用要比對 `ocr_engine`**。只看 `ocr_checked` 的話，Tesseract 時代那批雜訊會被永遠沿用下去——這是換引擎最容易漏掉的一步，`tests/test_build_site_ocr.py` 有測試守住 |
+
+## gemini_client.py（🆕 2026-09-04，Gemini 呼叫層）
+
+| 名稱 | 用途 | 備註 |
+|---|---|---|
+| `available()` | 有金鑰且裝得起 SDK 才回 True | 呼叫端拿它決定要不要進入整段流程 |
+| `parts()` | 回 `google.genai.types` | 讓呼叫端組 Part 而不必各自處理 ImportError |
+| `generate(contents, config, label, quiet)` | 打一次 Gemini，內建重試＋備援模型；失敗回 `None` 不丟例外 | **要調重試或換模型一律改這裡。** 咖啡情報與圖片辨識都吃這支；複製出去兩邊遲早分岔。`quiet=True` 給「一輪打很多次」的場景，避免同一個錯誤刷滿 log |
+| `MODEL` / `FALLBACK_MODEL` | `gemini-3.8-flash` → `gemini-2.5-flash` | 環境變數 `GEMINI_MODEL` / `GEMINI_MODEL_FALLBACK` 可覆寫。3.8-flash 常回 503「high demand」，2026-09-04 線上第一輪就是靠備援跑成功的 |
 
 ## 咖啡情報（🆕 2026-09-04）
 
@@ -122,7 +137,7 @@
 |---|---|---|
 | `scripts/coffee_news.py` | 抓 NOWnews「本周咖啡優惠」週更專欄 → 結構化成 `site/data/coffee.json` | 🆕 新寫（不沿用 `run_task` 的原因：那是 PTT 掃描引擎，來源、解析、輸出格式全都不同） |
 | `coffee_news.find_latest()` | 兩個來源合併挑最新一篇 | ⚠️ **不要改回用 nownews 站內搜尋**：`/search?q=` 對程式化存取是壞的，2026-09-04 實測連只搜「咖啡」都回「查無符合資料」 |
-| `coffee_news.extract()` | 丟 Gemini 做結構化（通路／品項／原價／優惠價／期間） | 內含重試＋備援模型：3.8-flash 常回 503「high demand」，退到 2.5-flash |
+| `coffee_news.extract()` | 丟 Gemini 做結構化（通路／品項／原價／優惠價／期間） | ♻️ 沿用 `gemini_client.generate`（金鑰／重試／備援模型）。原本這裡自帶一份同樣的重試迴圈，2026-09-04 圖片辨識也要用時抽出去共用 |
 | `site/index.html:renderCoffee()` | 置頂區塊：通路捷徑 chips ＋ 依通路分組的優惠列 ＋ 可收合（狀態存 localStorage） | 只在省錢頁顯示；沒有 coffee.json 就整塊不出現，不留空殼 |
 
 **來源策略**（兩個都是純 HTTP，不需要瀏覽器）：

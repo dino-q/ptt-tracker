@@ -1,7 +1,6 @@
 requests>=2.31,<3
 beautifulsoup4>=4.12,<5
-pillow>=10,<13
 
-# 咖啡情報的結構化擷取（scripts/coffee_news.py）。
+# 咖啡情報的結構化擷取＋省錢文章的圖片辨識（gemini_client.py）。
 # 沒有 GEMINI_API_KEY 時程式會自己跳過，不裝也不會讓其他掃描壞掉。
 google-genai==2.22.0

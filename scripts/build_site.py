@@ -21,9 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 # ♻️ 沿用 server.py 的掃描引擎與內建追蹤項定義
+import gemini_client
 from ptt_tool import PTTClient
-from image_ocr import (append_ocr_block, clean_ocr_text, normalize_existing_ocr_block,
-                       ocr_article_images, tesseract_command)
+from image_ocr import (OCR_ENGINE, append_ocr_block, clean_ocr_text,
+                       ocr_article_images, strip_ocr_block)
 from server import (ALWAYS_INCLUDE_HOT_BOARDS, CATEGORY_NAMES, article_id,
                     article_package, default_tracks,
                     classify, mark_new_results, run_hot, run_task)
@@ -77,8 +78,12 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
 
     已部署資料的 checked/text 直接沿用；每輪只處理有限篇，讓舊資料逐輪補齊、
     新文章優先處理，也避免 Actions 一次耗時過長。
+
+    ⚠️ 沿用要看 `ocr_engine`：2026-09-04 從 Tesseract 換成 Gemini，舊資料裡
+    那批 46% 雜訊如果照樣沿用，就會永遠留在線上。引擎對不上的一律當成沒讀過，
+    並先把舊區塊從 preview／body 清掉再重讀。
     """
-    ocr_available = bool(tesseract_command())
+    ocr_available = gemini_client.available()
     old_map = {
         r.get("url"): r for r in (old or {}).get("results", [])
         if isinstance(r, dict) and r.get("url")
@@ -87,10 +92,13 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
     reused = processed = recognized = 0
     for result in results:
         previous = old_map.get(result.get("url")) or {}
-        if previous.get("ocr_checked"):
+        # 沒有 ocr_engine 欄位的＝Tesseract 時代的舊資料，一律重讀
+        same_engine = previous.get("ocr_engine") == OCR_ENGINE
+        if previous.get("ocr_checked") and same_engine:
             result["ocr_checked"] = True
             result["image_urls"] = previous.get("image_urls") or []
             result["ocr_text"] = clean_ocr_text(previous.get("ocr_text") or "")
+            result["ocr_engine"] = OCR_ENGINE
             result["preview"] = append_ocr_block(result.get("preview", ""), result["ocr_text"])
             aid = article_id(result.get("url") or "")
             if aid in articles:
@@ -100,6 +108,13 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
             result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
             reused += 1
             continue
+        # 舊引擎讀過的殘留區塊先清掉。就算這輪輪不到重讀（超出額度或沒金鑰），
+        # 使用者看到的也是乾淨原文，而不是上一代的亂碼。
+        if previous.get("ocr_checked") and not same_engine:
+            result["preview"] = strip_ocr_block(result.get("preview", ""))
+            aid = article_id(result.get("url") or "")
+            if aid in articles:
+                articles[aid]["body"] = strip_ocr_block(articles[aid].get("body", ""))
         if not ocr_available:
             continue
         if processed >= budget:
@@ -117,6 +132,7 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
         outcome = ocr_article_images(package.get("body", ""), max_images=2)
         # 無圖片或完整跑完才永久記為 checked；網路暫時失敗者留給下輪重試。
         result["ocr_checked"] = bool(outcome["checked"])
+        result["ocr_engine"] = outcome["engine"]
         result["image_urls"] = outcome["image_urls"]
         result["ocr_text"] = outcome["text"]
         result["preview"] = append_ocr_block(result.get("preview", ""), outcome["text"])
@@ -126,7 +142,7 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
         result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
         articles[aid] = package
     if not ocr_available:
-        print("圖片 OCR：找不到 Tesseract；已沿用舊結果，本輪不辨識新圖片")
+        print("圖片辨識：Gemini 不可用（缺 GEMINI_API_KEY 或 google-genai）；本輪不讀新圖片")
     return reused, processed, recognized
 
 
@@ -167,7 +183,6 @@ def write_articles(out_dir: Path, items: list[dict], fresh: dict,
                 pkg = None
         if pkg is None:
             continue  # 沒有文章包：前端會退回顯示摘要＋原文連結
-        pkg["body"] = normalize_existing_ocr_block(pkg.get("body", ""))
         (art_dir / f"{aid}.json").write_text(json.dumps(pkg, ensure_ascii=False), encoding="utf-8")
         written += 1
     return written, carried, fetched
@@ -202,8 +217,8 @@ def main() -> None:
         money["results"], old_money, fresh_articles,
     )
     print(
-        f"money 圖片 OCR：沿用 {ocr_reused} 篇、檢查 {ocr_processed} 篇、"
-        f"辨識到文字 {ocr_recognized} 篇"
+        f"money 圖片辨識（{OCR_ENGINE}）：沿用 {ocr_reused} 篇、"
+        f"讀 {ocr_processed} 篇、讀到內容 {ocr_recognized} 篇"
     )
     (out_dir / "money.json").write_text(json.dumps({
         "updated_at": now,

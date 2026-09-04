@@ -1,13 +1,19 @@
-import unittest
+"""image_ocr 單元測試。
+
+2026-09-04 換引擎（Tesseract → Gemini）後重寫。網址擷取、白名單、SSRF 防護、
+下載限制那一層跟引擎無關，測試原樣保留；引擎相關的改測新行為。
+"""
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import image_ocr
-from PIL import Image
 
 
-class ImageOcrTests(unittest.TestCase):
+class ImageUrlTests(unittest.TestCase):
+    """擷取與下載層——這層跟用哪個引擎無關，換引擎不該動到它。"""
+
     def test_extracts_direct_images_and_normalizes_imgur_page(self):
         body = """文字 https://i.ibb.co/deal.png?x=1
         https://imgur.com/AbC123 不是圖 https://example.com/page
@@ -25,6 +31,7 @@ class ImageOcrTests(unittest.TestCase):
             self.assertFalse(image_ocr._is_public_url("https://localhost/a.png"))
 
     def test_redirect_is_validated_before_second_request(self):
+        """重點是「跟 redirect 之前就先驗」——等 requests 跟完才檢查，SSRF 已經發生了。"""
         class RedirectResponse:
             is_redirect = True
             is_permanent_redirect = False
@@ -51,79 +58,122 @@ class ImageOcrTests(unittest.TestCase):
                 )
         self.assertEqual(client.calls, 1)
 
-    def test_clean_ocr_drops_noise(self):
-        self.assertEqual(image_ocr.clean_ocr_text("| . - _"), "")
-        self.assertEqual(image_ocr.clean_ocr_text("  買一送一  \n  9/3 限定 "), "買一送一\n9/3 限定")
 
-    def test_clean_ocr_removes_leaked_tsv_rows_and_cjk_word_spaces(self):
-        dirty = """看 影片 拿 點 數
-2 1 20 0 0 0 219 509 254 78 -1
-5 1 20 1 1 1 219 513 204 74 12.969475 BEREEE
-會員 限定 $500"""
-        self.assertEqual(image_ocr.clean_ocr_text(dirty), "看影片拿點數\n會員限定 $500")
-        self.assertEqual(
-            image_ocr.clean_ocr_text("1 2 3 4 5 6 7 8 9 10 11"),
-            "1 2 3 4 5 6 7 8 9 10 11",
-        )
+class MimeSniffTests(unittest.TestCase):
+    def test_sniffs_by_magic_bytes_not_extension(self):
+        """副檔名是 PTT 文章作者寫的，不能信；型別要靠檔頭判。"""
+        self.assertEqual(image_ocr._sniff_mime(b"\x89PNG\r\n\x1a\n....."), "image/png")
+        self.assertEqual(image_ocr._sniff_mime(b"\xff\xd8\xff\xe0...."), "image/jpeg")
+        self.assertEqual(image_ocr._sniff_mime(b"RIFF\x00\x00\x00\x00WEBPVP8 "), "image/webp")
+        self.assertEqual(image_ocr._sniff_mime(b"GIF89a..."), "image/gif")
 
-    def test_article_ocr_keeps_partial_success_retryable(self):
-        with patch("image_ocr.tesseract_command", return_value="tesseract"), patch(
-            "image_ocr.ocr_image_url", side_effect=["優惠 99 元", RuntimeError("逾時")]
-        ):
-            got = image_ocr.ocr_article_images(
-                "https://i.ibb.co/a.jpg https://i.ibb.co/b.png", max_images=2
-            )
-        self.assertFalse(got["checked"])
-        self.assertIn("優惠 99 元", got["text"])
-        self.assertEqual(len(got["errors"]), 1)
+
+class TextBlockTests(unittest.TestCase):
+    def test_clean_collapses_whitespace_and_caps_length(self):
+        self.assertEqual(image_ocr.clean_ocr_text("  拿鐵   買一送一 \n\n\n  期間 9/1 "),
+                         "拿鐵 買一送一\n期間 9/1")
+        long = "字" * 5000
+        out = image_ocr.clean_ocr_text(long, max_chars=100)
+        self.assertEqual(len(out), 101)          # 100 字 + 省略號
+        self.assertTrue(out.endswith("…"))
 
     def test_append_ocr_block_is_idempotent(self):
-        once = image_ocr.append_ocr_block("原文", "優惠內容")
-        self.assertEqual(image_ocr.append_ocr_block(once, "優惠內容"), once)
-        replaced = image_ocr.append_ocr_block(once, "更新後優惠")
-        self.assertNotIn("優惠內容", replaced)
-        self.assertIn("更新後優惠", replaced)
+        first = image_ocr.append_ocr_block("原文", "拿鐵買一送一")
+        second = image_ocr.append_ocr_block(first, "拿鐵買一送一")
+        self.assertEqual(first, second)
+        self.assertEqual(first.count(image_ocr.MARKER), 1)
 
-    def test_normalize_existing_block_cleans_already_deployed_text(self):
-        dirty = image_ocr.append_ocr_block(
-            "原文", "看 影片 拿 點 數\n2 1 20 0 0 0 219 509 254 78 -1"
-        )
-        got = image_ocr.normalize_existing_ocr_block(dirty)
-        self.assertIn("看影片拿點數", got)
-        self.assertNotIn("219 509", got)
+    def test_append_empty_removes_existing_block(self):
+        with_block = image_ocr.append_ocr_block("原文", "舊結果")
+        self.assertEqual(image_ocr.append_ocr_block(with_block, ""), "原文")
 
-    def test_tsv_layout_preserves_lines_and_blocks(self):
-        tsv = """level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext
-5\t1\t1\t1\t1\t1\t20\t10\t40\t20\t95\t全家
-5\t1\t1\t1\t1\t2\t70\t10\t80\t20\t93\t買一送一
-5\t1\t1\t1\t2\t1\t20\t40\t90\t20\t91\t9/3限定
-5\t1\t2\t1\t1\t1\t250\t15\t80\t20\t90\t會員限定
-"""
-        text, score = image_ocr._layout_text_from_tsv(tsv)
-        self.assertEqual(text, "全家買一送一\n9/3限定\n\n會員限定")
-        self.assertGreater(score, 0)
+    def test_strip_removes_legacy_tesseract_block(self):
+        """換引擎的關鍵：舊版標題也要認得，否則 Tesseract 亂碼會留在線上資料裡。"""
+        legacy = ("優惠原文\n\n【圖片文字辨識（自動 OCR，請以原圖為準）】\n"
+                  "2 1 20 0 0 0 219 509 254 78 -1\n看 影片 拿 點 數")
+        self.assertEqual(image_ocr.strip_ocr_block(legacy), "優惠原文")
 
-    def test_prepare_image_upscales_small_poster(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "source.png"
-            target = Path(tmp) / "prepared.png"
-            Image.new("RGB", (400, 800), "white").save(source)
-            got = image_ocr._prepare_image(source, target)
-            with Image.open(got) as prepared:
-                self.assertEqual(prepared.mode, "L")
-                self.assertGreaterEqual(max(prepared.size), 2200)
+    def test_strip_removes_current_block(self):
+        cur = image_ocr.append_ocr_block("優惠原文", "拿鐵買一送一")
+        self.assertEqual(image_ocr.strip_ocr_block(cur), "優惠原文")
 
-    def test_one_layout_mode_failure_does_not_discard_other_mode(self):
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "image_ocr.tesseract_command", return_value="tesseract"
-        ), patch("image_ocr._download_image"), patch(
-            "image_ocr._prepare_image", side_effect=lambda source, target: source
-        ), patch(
-            "image_ocr._run_layout_ocr",
-            side_effect=[RuntimeError("psm11 failed"), ("會員價 99 元", 100)],
-        ):
-            got = image_ocr.ocr_image_url("https://public.test/deal.png")
-        self.assertEqual(got, "會員價 99 元")
+
+class ArticleReadTests(unittest.TestCase):
+    def test_no_images_is_checked_and_costs_nothing(self):
+        """沒有圖片就不該打 API——這是每小時排程，白打錢就白花了。"""
+        with patch("image_ocr.gemini_client.available", return_value=True) as avail, \
+             patch("image_ocr.read_image_url") as read:
+            out = image_ocr.ocr_article_images("純文字文章，沒有任何圖片連結")
+        self.assertTrue(out["checked"])
+        self.assertEqual(out["image_urls"], [])
+        self.assertEqual(out["engine"], image_ocr.OCR_ENGINE)
+        read.assert_not_called()
+        avail.assert_not_called()
+
+    def test_unavailable_gemini_stays_unchecked_for_retry(self):
+        """沒金鑰不能標 checked，否則這篇會被永久當成「讀過了、沒東西」。"""
+        body = "https://i.imgur.com/a.jpg"
+        with patch("image_ocr.gemini_client.available", return_value=False):
+            out = image_ocr.ocr_article_images(body)
+        self.assertFalse(out["checked"])
+        self.assertEqual(out["image_urls"], ["https://i.imgur.com/a.jpg"])
+        self.assertEqual(out["text"], "")
+
+    def test_partial_failure_keeps_good_result_but_stays_retryable(self):
+        body = "https://i.imgur.com/a.jpg https://i.ibb.co/b.png"
+        with patch("image_ocr.gemini_client.available", return_value=True), \
+             patch("image_ocr.read_image_url",
+                   side_effect=["拿鐵買一送一", RuntimeError("timeout")]):
+            out = image_ocr.ocr_article_images(body)
+        self.assertIn("拿鐵買一送一", out["text"])
+        self.assertIn("【圖片 1】", out["text"])
+        # 有一張失敗 → 不標 checked，下一輪整篇重讀
+        self.assertFalse(out["checked"])
+        self.assertEqual(len(out["errors"]), 1)
+
+    def test_all_success_is_checked(self):
+        body = "https://i.imgur.com/a.jpg"
+        with patch("image_ocr.gemini_client.available", return_value=True), \
+             patch("image_ocr.read_image_url", return_value="全家 9/3 買一送一"):
+            out = image_ocr.ocr_article_images(body)
+        self.assertTrue(out["checked"])
+        self.assertEqual(out["engine"], image_ocr.OCR_ENGINE)
+
+
+class ReadImageUrlTests(unittest.TestCase):
+    def _fake_download(self, data):
+        def _dl(url, path, session=None):
+            Path(path).write_bytes(data)
+        return _dl
+
+    def test_no_content_answer_becomes_empty_string(self):
+        """模型說「無相關資訊」時不能把這四個字塞進使用者的優惠摘要。"""
+        class Resp:
+            text = "無相關資訊"
+        with patch("image_ocr._download_image", self._fake_download(b"\x89PNG\r\n\x1a\n")), \
+             patch("image_ocr.gemini_client.parts") as parts, \
+             patch("image_ocr.gemini_client.generate", return_value=Resp()):
+            parts.return_value.Part.from_bytes.return_value = object()
+            parts.return_value.Part.from_text.return_value = object()
+            self.assertEqual(image_ocr.read_image_url("https://i.imgur.com/a.jpg"), "")
+
+    def test_gemini_unavailable_raises_so_caller_can_retry(self):
+        with patch("image_ocr._download_image", self._fake_download(b"\x89PNG\r\n\x1a\n")), \
+             patch("image_ocr.gemini_client.parts"), \
+             patch("image_ocr.gemini_client.generate", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "Gemini 不可用"):
+                image_ocr.read_image_url("https://i.imgur.com/a.jpg")
+
+    def test_passes_sniffed_mime_not_extension(self):
+        """網址寫 .jpg 但內容是 PNG → 要送 image/png。"""
+        class Resp:
+            text = "拿鐵買一送一"
+        with patch("image_ocr._download_image", self._fake_download(b"\x89PNG\r\n\x1a\nrest")), \
+             patch("image_ocr.gemini_client.parts") as parts, \
+             patch("image_ocr.gemini_client.generate", return_value=Resp()):
+            image_ocr.read_image_url("https://i.imgur.com/a.jpg")
+        kwargs = parts.return_value.Part.from_bytes.call_args.kwargs
+        self.assertEqual(kwargs["mime_type"], "image/png")
 
 
 if __name__ == "__main__":

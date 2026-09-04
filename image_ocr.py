@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PTT 文章圖片 OCR：擷取公開圖片網址、限制下載大小，再呼叫 Tesseract。
+"""PTT 文章圖片辨識：擷取公開圖片網址、限制下載大小，再交給 Gemini 讀。
 
-本模組刻意不依賴雲端視覺 API。Tesseract 不存在時會安全略過，讓一般掃描維持可用。
+**2026-09-04 換引擎**：原本用 Tesseract，實測輸出 46% 是雜訊（最差一篇 73%）。
+問題不在調參——優惠海報是格狀排版，品項、價格、期間、取得管道分散在不同格子裡，
+逐字擷取的 OCR 結構上就沒辦法把它們配對起來，讀出一堆字卻沒有一句看得懂的優惠。
+Gemini 看得懂版面，回來的是「大杯拿鐵／買1送1／100→50元／APP」這種可用的句子。
+
+沒有金鑰或呼叫失敗都會安全略過（`checked=False`，下一輪再試），
+不會拖垮一般 PTT 掃描。網址擷取、白名單、SSRF 防護、8 MB 上限全部沿用舊版，
+那一層跟用哪個引擎無關。
 """
 from __future__ import annotations
 
 import ipaddress
-import csv
-import io
-import os
 import re
-import shutil
 import socket
-import subprocess
-import tempfile
-from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
 
-try:
-    from PIL import Image, ImageOps
-except ImportError:  # Tesseract 仍可直接讀原圖；Pillow 只負責提升海報小字辨識率
-    Image = ImageOps = None
+# ♻️ 沿用 gemini_client 的金鑰／重試／備援模型，不要在這裡另寫一套
+import gemini_client
 
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
 IMAGE_EXT_RE = re.compile(r"\.(?:jpe?g|png|webp|gif|bmp)(?:$|[?#])", re.I)
 TRAILING_PUNCTUATION = ").,;:!?]}>'\"，。；：！？）】》」』"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-OCR_TIMEOUT_SECONDS = 20
+
+# 換引擎時把這個字串改掉，build_site 就會把舊引擎讀過的文章全部重讀一次。
+# 沒有這個標記的話，Tesseract 時代那批 46% 雜訊會被永遠「沿用」下去。
+OCR_ENGINE = "gemini-1"
 # 只連已知公開圖床。PTT 內文由任何人控制，任意網域即使先查 DNS 為公網，
 # 仍可能在 requests 第二次解析時 DNS rebinding 到內網；白名單移除該攻擊者控制面。
 TRUSTED_IMAGE_HOSTS = {
@@ -137,284 +137,122 @@ def _download_image(url: str, target: Path, session: requests.Session | None = N
             raise ValueError("圖片內容是空的")
 
 
-@lru_cache(maxsize=1)
-def tesseract_command() -> str | None:
-    configured = os.environ.get("TESSERACT_CMD", "").strip()
-    if configured and Path(configured).is_file():
-        return configured
-    return shutil.which("tesseract")
+# ── Gemini 讀圖 ──────────────────────────────────────────────────────
+
+PROMPT = """你在讀一張台灣 PTT 省錢版文章裡的圖片，通常是優惠活動海報或商品截圖。
+
+把圖片裡「對想省錢的人有用」的資訊寫成條列，用繁體中文：
+- 品項名稱要完整，連同它自己的價格、折扣規則寫在同一行
+- 有活動期間、門檻（滿額多少）、取得管道（門市／APP／官網／會員）就一併寫在該行
+- 純裝飾字、店家標語、免責聲明、頁碼、浮水印一律不要
+
+⚠️ 只寫圖片上真的看得到的字。看不清楚就略過那一項，**絕對不要推測或補齊**
+——這些內容會直接顯示給使用者當成優惠資訊，猜錯比漏掉嚴重得多。
+
+圖片裡沒有任何優惠資訊（純風景、迷因、表情包、單純的商品照）就只回四個字：無相關資訊
+"""
+
+MAX_TEXT_CHARS = 1800
 
 
-@lru_cache(maxsize=1)
-def _tesseract_language(command: str) -> str:
-    try:
-        proc = subprocess.run(
-            [command, "--list-langs"], capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=15, check=False,
-        )
-        langs = set(proc.stdout.split())
-    except (OSError, subprocess.SubprocessError):
-        langs = set()
-    if {"chi_tra", "eng"}.issubset(langs):
-        return "chi_tra+eng"
-    if "chi_tra" in langs:
-        return "chi_tra"
-    return "eng"
+def clean_ocr_text(text: str, max_chars: int = MAX_TEXT_CHARS) -> str:
+    """收斂空白與長度。Gemini 回的已經是通順句子，不需要舊版那套雜訊過濾。"""
+    lines = []
+    for raw in (text or "").splitlines():
+        line = re.sub(r"[ \t\u3000]+", " ", raw).strip()
+        if line:
+            lines.append(line)
+    out = "\n".join(lines).strip()
+    if len(out) > max_chars:
+        out = out[:max_chars].rstrip() + "…"
+    return out
 
 
-def _looks_like_leaked_tsv_row(line: str) -> bool:
-    """辨識真正的 Tesseract TSV 列；不能只看「11 個數字」，以免誤刪優惠序號。"""
-    parts = line.split(maxsplit=11)
-    if len(parts) < 11:
-        return False
-    try:
-        level, page, block, paragraph, line_no, word_no = map(int, parts[:6])
-        left, top, width, height = map(int, parts[6:10])
-        confidence = float(parts[10])
-    except ValueError:
-        return False
-    if (level not in range(1, 6) or page < 1
-            or min(block, paragraph, line_no, word_no, left, top, width, height) < 0):
-        return False
-    if level < 5:
-        return word_no == 0 and confidence == -1 and len(parts) == 11
-    return word_no >= 1 and width > 0 and height > 0 and 0 <= confidence <= 100 and len(parts) == 12
+def _sniff_mime(data: bytes) -> str:
+    """靠 magic bytes 判型別。副檔名是文章作者寫的，不能信。"""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    return "image/jpeg"
 
 
-@dataclass(frozen=True)
-class OcrTuning:
-    """OCR 收緊參數。
+def read_image_url(url: str, quiet: bool = True) -> str:
+    """下載單張圖片交給 Gemini 讀，回純文字。失敗丟例外，由呼叫端決定怎麼辦。"""
+    import tempfile
 
-    抽成物件是為了讓 scripts/ocr_ab_compare.py 能用**同一份 pipeline** 跑不同設定做對照，
-    不要為了調參複製一套實作出去改。
-    """
+    with tempfile.TemporaryDirectory(prefix="ptt-img-") as tmp:
+        path = Path(tmp) / "source.img"
+        _download_image(url, path)
+        data = path.read_bytes()
 
-    min_word_conf: float = 50.0   # 舊值 15。海報裝飾字/logo/商品圖在 conf 15-40 幾乎全是噪音
-    drop_junk_lines: bool = True  # 丟掉「無中文也無數量詞」且信心偏低的碎片行
-    junk_conf_ceiling: float = 70.0   # 只有信心低於此值的碎片才敢丟，高信心的照留
-    legacy_score: bool = False    # True＝舊的「字數×平均信心」（會偏袒雜訊多的那一版）
-
-
-#: 線上目前的行為（2026-09-04 之前一直是這組）
-LEGACY_TUNING = OcrTuning(min_word_conf=15.0, drop_junk_lines=False, legacy_score=True)
-#: 本次提案的收緊設定（dataclass 的預設值就是它）
-TIGHTENED_TUNING = OcrTuning()
-
-# ⚠️ 目前仍指向 LEGACY：2026-09-04 Dino 要求「收緊，但先給我看樣本再上線」。
-# 對照報告跑法見 .github/workflows/ocr-ab.yml（Actions → ocr-ab-compare → Run workflow）。
-# Dino 點頭後，把下面這行改成 TIGHTENED_TUNING 就等於上線，不需要動其他地方。
-DEFAULT_TUNING = LEGACY_TUNING
-
-# 「這行看起來有沒有資訊」的保留樣式：價格、數量、日期、時間、長數字
-_USEFUL_PATTERNS = (
-    re.compile(r"[$＄]\s?\d"),
-    re.compile(r"\d+\s*(?:元|折|入|件|杯|支|包|條|盒|瓶|月|日|點|%|％)"),
-    re.compile(r"\d{1,2}\s*[/／]\s*\d{1,2}"),
-    re.compile(r"\d{1,2}:\d{2}"),
-    re.compile(r"\d{3,}"),
-)
-
-
-def _line_is_useful(line: str) -> bool:
-    """判斷一行是不是真的優惠內容。拿不準一律回 True（留著）。
-
-    ⚠️ 絕對不要改成「看起來像亂碼就砍」的粗判：2026-09-03 Angus 抓過用「11 個數字」
-    當規則會誤刪正常的優惠序號。這裡只認「明確帶資訊」的訊號，其餘交給信心門檻把關。
-    """
-    stripped = line.strip()
-    if not stripped:
-        return True                                            # 空行交給 clean_ocr_text
-    if len(re.findall(r"[㐀-鿿]", stripped)) >= 2:
-        return True                                            # 兩個以上中文字＝有內容
-    if any(pattern.search(stripped) for pattern in _USEFUL_PATTERNS):
-        return True                                            # 價格／數量／日期
-    if re.search(r"[A-Za-z]{4,}", stripped):
-        return True                                            # 品牌英文（FamilyMart、eclipse…）
-    return False
-
-
-def clean_ocr_text(text: str, max_chars: int = 1800) -> str:
-    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").splitlines()]
-    compact: list[str] = []
-    for line in lines:
-        # Ubuntu Tesseract 在少數複雜海報會把 TSV 座標列混進文字欄；這些列不是圖片內容。
-        if _looks_like_leaked_tsv_row(line) or line.startswith("level page_num block_num"):
-            continue
-        if line or (compact and compact[-1]):
-            compact.append(line)
-    cleaned = "\n".join(compact).strip()
-    # chi_tra 常把每個中文字切成獨立 word；只合併相鄰中文字，不動價格/日期/英文間距。
-    cleaned = re.sub(r"(?<=[\u3400-\u9fff]) (?=[\u3400-\u9fff])", "", cleaned)
-    meaningful = re.sub(r"[^0-9A-Za-z\u3400-\u9fff]", "", cleaned)
-    if len(meaningful) < 4:
+    types = gemini_client.parts()
+    resp = gemini_client.generate(
+        [types.Part.from_bytes(data=data, mime_type=_sniff_mime(data)),
+         types.Part.from_text(text=PROMPT)],
+        label="圖片辨識", quiet=quiet)
+    if resp is None:
+        raise RuntimeError("Gemini 不可用")
+    text = clean_ocr_text(resp.text or "")
+    # 模型明講沒東西可讀時回空字串，不要把「無相關資訊」四個字塞進使用者的摘要
+    if text.replace(" ", "") in {"無相關資訊", "無相關資訊。"}:
         return ""
-    return cleaned[:max_chars].rstrip()
+    return text
 
 
-def _prepare_image(source: Path, target: Path) -> Path:
-    """校正手機照片方向、灰階增強對比，並把小圖放大供 Tesseract 讀細字。"""
-    if Image is None or ImageOps is None:
-        return source
-    try:
-        Image.MAX_IMAGE_PIXELS = 40_000_000
-        with Image.open(source) as opened:
-            frame = ImageOps.exif_transpose(opened.copy())
-        frame = ImageOps.grayscale(frame)
-        frame = ImageOps.autocontrast(frame, cutoff=1)
-        longest = max(frame.size)
-        if longest and longest < 2200:
-            scale = min(3.0, 2200 / longest)
-            frame = frame.resize(
-                (max(1, round(frame.width * scale)), max(1, round(frame.height * scale))),
-                Image.Resampling.LANCZOS,
-            )
-        frame.save(target, format="PNG", optimize=True)
-        return target
-    except Exception:
-        return source
-
-
-def _layout_text_from_tsv(tsv: str, tuning: OcrTuning = DEFAULT_TUNING) -> tuple[str, float]:
-    """依 OCR 座標重組文字行與區塊，避免優惠海報的價錢、日期、限制全黏成一段。"""
-    lines: dict[tuple[int, int, int], dict] = {}
-    reader = csv.DictReader(io.StringIO(tsv or ""), delimiter="\t")
-    for row in reader:
-        word = (row.get("text") or "").strip()
-        if not word:
-            continue
-        try:
-            confidence = float(row.get("conf") or -1)
-            if confidence < tuning.min_word_conf:
-                continue
-            block = int(row.get("block_num") or 0)
-            paragraph = int(row.get("par_num") or 0)
-            line = int(row.get("line_num") or 0)
-            left = int(row.get("left") or 0)
-            top = int(row.get("top") or 0)
-        except ValueError:
-            continue
-        item = lines.setdefault((block, paragraph, line), {
-            "words": [], "left": left, "top": top, "conf": [], "block": block,
-        })
-        item["words"].append((left, word))
-        item["left"] = min(item["left"], left)
-        item["top"] = min(item["top"], top)
-        item["conf"].append(confidence)
-    if not lines:
-        return "", 0.0
-
-    blocks: dict[int, list[dict]] = {}
-    for line in lines.values():
-        blocks.setdefault(line["block"], []).append(line)
-    ordered_blocks = sorted(
-        blocks.values(),
-        key=lambda group: (min(x["top"] for x in group), min(x["left"] for x in group)),
-    )
-    rendered: list[str] = []
-    confidences: list[float] = []
-    for group in ordered_blocks:
-        group_lines = []
-        for line in sorted(group, key=lambda x: (x["top"], x["left"])):
-            joined = " ".join(word for _, word in sorted(line["words"]))
-            line_conf = sum(line["conf"]) / len(line["conf"]) if line["conf"] else 0
-            # 只丟「沒有資訊訊號」且「信心本來就低」的碎片；高信心的數字／序號一律留著
-            if (tuning.drop_junk_lines and not _line_is_useful(joined)
-                    and line_conf < tuning.junk_conf_ceiling):
-                continue
-            group_lines.append(joined)
-            confidences.extend(line["conf"])
-        if group_lines:
-            rendered.append("\n".join(group_lines))
-    text = clean_ocr_text("\n\n".join(rendered))
-    meaningful = len(re.sub(r"[^0-9A-Za-z㐀-鿿]", "", text))
-    average_confidence = sum(confidences) / len(confidences) if confidences else 0
-    if tuning.legacy_score:
-        # 舊計分：字數無上限、信心上限 100 → 字多但髒的那版會贏。留著只為 A/B 對照。
-        score = meaningful * max(average_confidence, 1) + min(len(rendered), 8) * 20
-    else:
-        # 信心佔主導、字數只開根號貢獻，讓「字少但乾淨」贏過「字多但髒」；
-        # 兩版信心接近時字數仍決定勝負（該多讀的還是會多讀）。
-        score = (meaningful ** 0.5) * (max(average_confidence, 1) ** 2)
-    return text, score
-
-
-def _run_layout_ocr(command: str, image_path: Path, psm: int,
-                    tuning: OcrTuning = DEFAULT_TUNING) -> tuple[str, float]:
-    proc = subprocess.run(
-        [command, str(image_path), "stdout", "-l", _tesseract_language(command),
-         "--psm", str(psm), "tsv"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=OCR_TIMEOUT_SECONDS, check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "Tesseract 辨識失敗").strip()[:300])
-    return _layout_text_from_tsv(proc.stdout, tuning)
-
-
-def ocr_image_url(url: str, tuning: OcrTuning = DEFAULT_TUNING) -> str:
-    """下載單張圖片並回 OCR 文字；任何失敗都交由呼叫端決定是否重試。"""
-    command = tesseract_command()
-    if not command:
-        raise RuntimeError("找不到 Tesseract OCR")
-    suffix = Path(urlparse(url).path).suffix.lower()
-    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}:
-        suffix = ".img"
-    with tempfile.TemporaryDirectory(prefix="ptt-ocr-") as tmp:
-        image_path = Path(tmp) / f"source{suffix}"
-        _download_image(url, image_path)
-        prepared = _prepare_image(image_path, Path(tmp) / "prepared.png")
-        # PSM 11 適合海報的散落大字/小字；PSM 6 適合表格狀、整齊的優惠清單。
-        candidates = []
-        errors = []
-        for psm in (11, 6):
-            try:
-                candidates.append(_run_layout_ocr(command, prepared, psm, tuning))
-            except Exception as exc:
-                errors.append(str(exc))
-        if not candidates:
-            raise RuntimeError("；".join(errors) or "Tesseract 辨識失敗")
-        return max(candidates, key=lambda item: item[1])[0]
-
-
-def ocr_article_images(body: str, max_images: int = 2,
-                       tuning: OcrTuning = DEFAULT_TUNING) -> dict:
+def ocr_article_images(body: str, max_images: int = 2) -> dict:
     """辨識文章內圖片，回傳可持久化的狀態；單張壞圖不會中止整篇。"""
     urls = extract_image_urls(body, max_images=max_images)
     if not urls:
-        return {"checked": True, "image_urls": [], "text": "", "errors": []}
-    if not tesseract_command():
-        return {"checked": False, "image_urls": urls, "text": "", "errors": ["找不到 Tesseract OCR"]}
+        return {"checked": True, "image_urls": [], "text": "", "errors": [],
+                "engine": OCR_ENGINE}
+    if not gemini_client.available():
+        return {"checked": False, "image_urls": urls, "text": "",
+                "errors": ["Gemini 不可用（沒有 GEMINI_API_KEY 或未安裝 google-genai）"],
+                "engine": OCR_ENGINE}
     blocks: list[str] = []
     errors: list[str] = []
     for index, url in enumerate(urls, 1):
         try:
-            text = ocr_image_url(url, tuning)
+            text = read_image_url(url)
             if text:
                 blocks.append(f"【圖片 {index}】\n{text}")
-        except Exception as exc:
+        except Exception as exc:                              # noqa: BLE001
             errors.append(f"{url}：{exc}")
     return {
+        # 有錯就不標 checked，下一輪會重試這篇（暫時性失敗不該變成永久空白）
         "checked": not errors,
         "image_urls": urls,
         "text": "\n\n".join(blocks),
         "errors": errors,
+        "engine": OCR_ENGINE,
     }
 
 
+MARKER = "【圖片文字辨識（AI 讀圖，請以原圖為準）】"
+# 舊版標題。清掉已部署資料裡的 Tesseract 區塊要靠它認得出來。
+LEGACY_MARKERS = ("【圖片文字辨識（自動 OCR，請以原圖為準）】",)
+
+
+def strip_ocr_block(text: str) -> str:
+    """移除任何版本的辨識區塊，回純原文。換引擎重讀之前一定要先做這一步，
+    否則舊的 Tesseract 亂碼會留在使用者看到的摘要與全文裡。"""
+    out = text or ""
+    for marker in (MARKER,) + LEGACY_MARKERS:
+        out = out.split(marker, 1)[0]
+    return out.rstrip()
+
+
 def append_ocr_block(text: str, ocr_text: str) -> str:
-    marker = "【圖片文字辨識（自動 OCR，請以原圖為準）】"
-    # 重試成功後要能取代先前的部分結果；空結果則移除可能殘留的舊區塊。
-    base = (text or "").split(marker, 1)[0].rstrip()
+    """將辨識結果以明確警語併入摘要或全文。可重複呼叫，不會重複附加。"""
+    base = strip_ocr_block(text)
     if not ocr_text:
         return base
-    block = f"{marker}\n{ocr_text.strip()}"
+    block = f"{MARKER}\n{ocr_text.strip()}"
     return f"{base}\n\n{block}" if base else block
-
-
-def normalize_existing_ocr_block(text: str) -> str:
-    """讓已部署、已標 checked 的舊 OCR 也能套用新版清理規則。"""
-    marker = "【圖片文字辨識（自動 OCR，請以原圖為準）】"
-    if marker not in (text or ""):
-        return text or ""
-    base, old_ocr = (text or "").split(marker, 1)
-    return append_ocr_block(base, clean_ocr_text(old_ocr))

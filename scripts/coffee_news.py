@@ -28,6 +28,9 @@ import sys
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
+
+# ♻️ 沿用共用的 Gemini 呼叫層（金鑰／重試／備援模型）
+import gemini_client
 from datetime import datetime, timezone, timedelta
 
 TAIPEI = timezone(timedelta(hours=8))
@@ -55,9 +58,8 @@ def is_coffee_deal(title: str) -> bool:
     t = title or ""
     return bool(COFFEE_RE.search(t) and DEAL_RE.search(t))
 
-MODEL = os.environ.get("COFFEE_MODEL", "gemini-3.8-flash")
+# 模型、重試、備援統一在 gemini_client。要換模型設環境變數 GEMINI_MODEL / GEMINI_MODEL_FALLBACK。
 #: 3.8 常在尖峰回 503，退到這個（實測穩定，分組一樣正確、偶有錯字）
-FALLBACK_MODEL = os.environ.get("COFFEE_MODEL_FALLBACK", "gemini-2.5-flash")
 TIMEOUT = 25
 
 SCHEMA = {
@@ -185,48 +187,28 @@ def article_text(url: str) -> str:
 
 
 def extract(text: str, title: str) -> dict | None:
-    """丟給 Gemini 做結構化。沒金鑰或呼叫失敗都回 None，由呼叫端決定怎麼辦。"""
-    key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-    if not key:
-        print("咖啡情報：沒有 GEMINI_API_KEY，跳過結構化擷取")
-        return None
+    """丟給 Gemini 做結構化。沒金鑰或呼叫失敗都回 None，由呼叫端決定怎麼辦。
+
+    ♻️ 沿用 gemini_client.generate（金鑰／重試／備援模型）。原本這裡自己寫了
+    一份一模一樣的重試迴圈，圖片辨識也要用同一套——複製出去兩邊遲早分岔。
+    """
     try:
-        from google import genai
-        from google.genai import types
+        types = gemini_client.parts()
     except ImportError:
         print("咖啡情報：沒裝 google-genai，跳過結構化擷取")
         return None
-    client = genai.Client(api_key=key)
-    content = [types.Part.from_text(text=f"{PROMPT}\n\n標題：{title}\n\n內文：\n{text}")]
-    config = types.GenerateContentConfig(
-        response_mime_type="application/json", response_schema=SCHEMA)
-
-    # 2026-09-04 實測：gemini-3.8-flash 常回 503「high demand」。
-    # 先重試同一個模型，還是不行就退到 FALLBACK_MODEL——這是每小時排程，
-    # 不能因為一次尖峰就讓置頂區空掉。
-    last = None
-    for model in (MODEL, FALLBACK_MODEL):
-        for attempt in range(1, 3 + 1):
-            try:
-                resp = client.models.generate_content(
-                    model=model, contents=content, config=config)
-                data = json.loads((resp.text or "").strip())
-                if model != MODEL:
-                    print(f"咖啡情報：{MODEL} 不可用，改用 {model} 成功")
-                return data
-            except Exception as exc:                          # noqa: BLE001
-                last = exc
-                msg = str(exc).lower()
-                retryable = any(k in msg for k in
-                                ("503", "429", "500", "502", "504", "unavailable",
-                                 "timeout", "deadline", "resource_exhausted"))
-                if not retryable:
-                    print(f"咖啡情報：擷取失敗（{type(exc).__name__}: {exc}）")
-                    return None
-                if attempt < 3:
-                    time.sleep(2.0 * attempt)
-    print(f"咖啡情報：兩個模型都不可用（{type(last).__name__}: {last}）")
-    return None
+    resp = gemini_client.generate(
+        [types.Part.from_text(text=f"{PROMPT}\n\n標題：{title}\n\n內文：\n{text}")],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json", response_schema=SCHEMA),
+        label="咖啡情報")
+    if resp is None:
+        return None
+    try:
+        return json.loads((resp.text or "").strip())
+    except (ValueError, TypeError) as exc:
+        print(f"咖啡情報：回傳不是合法 JSON（{exc}）")
+        return None
 
 
 def build(previous: dict | None = None) -> dict | None:
