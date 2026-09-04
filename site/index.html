@@ -280,6 +280,16 @@
     display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
     font-size: .78rem; color: var(--color-ink-2); margin-bottom: 2px;
   }
+  /* 已結束：整塊壓灰但不刪除。用 color 而不是 opacity——
+     opacity 會連帶把對比壓到 WCAG 標準以下（09-04 設計審查抓到過同樣的錯）。 */
+  .coffee-block.blk-expired .d-item,
+  .coffee-block.blk-expired .d-note { color: var(--color-ink-3, #8a8f8c); }
+  .blk-over {
+    margin-left: var(--space-2); padding: 1px 7px; border-radius: var(--radius-pill);
+    background: var(--color-chip); color: var(--color-ink-2);
+    font-size: .72rem; white-space: nowrap;
+  }
+  .coffee-jump button.jump-dead { color: var(--color-ink-2); border-style: dashed; }
   .blk-way {
     background: var(--color-accent-soft); color: var(--color-accent);
     border-radius: var(--radius-pill); padding: 1px 8px; font-weight: 600;
@@ -856,11 +866,45 @@ async function loadCoffee() {
   return COFFEE;
 }
 
+/* 文章只寫「9月2日」不寫年份。把 M月D日 對到最接近今天的那一年：
+   離今天超過半年的一律當成隔年（12 月看到「1月5日」）或去年（1 月看到「12月28日」）。
+   跨年檔期不這樣處理的話，年底會把明年的活動判成已過期。 */
+function coffeeMD(mo, day) {
+  const now = new Date();
+  let best = null;
+  for (const dy of [-1, 0, 1]) {
+    const d = new Date(now.getFullYear() + dy, mo - 1, day);
+    if (!best || Math.abs(d - now) < Math.abs(best - now)) best = d;
+  }
+  return best;
+}
+
+/* 這個檔期的結束日（期間文字裡最後一個 M月D日）。抓不到就回 null＝不判斷。 */
+function coffeeEnd(text) {
+  const re = /(\d{1,2})月(\d{1,2})日/g;
+  let m, last = null;
+  while ((m = re.exec(text || ""))) last = coffeeMD(+m[1], +m[2]);
+  return last;
+}
+
+/* 已結束＝結束日在「今天之前」。當天仍算有效，所以比的是今天 00:00。 */
+function coffeeExpired(ch) {
+  const end = coffeeEnd(ch && ch.期間);
+  if (!end) return false;
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return end < t;
+}
+
 /* 從各通路的期間文字裡撈出所有「M月D日」，取最早與最晚合成一個總範圍。
-   只在文章本身沒寫總期間時才用；撈不到日期就回空字串（寧可不顯示，也不要瞎猜）。 */
+   只在文章本身沒寫總期間時才用；撈不到日期就回空字串（寧可不顯示，也不要瞎猜）。
+   ⚠️ 只看「還沒結束」的檔期——2026-09-04 實際踩到：一則 8/10～9/1 的過期活動
+   把總範圍拉成「8/10～9/29」，看起來像是這波優惠從三週前就開始了。 */
 function summarizeCoffeePeriod(channels) {
+  const live = (channels || []).filter(ch => !coffeeExpired(ch));
+  const use = live.length ? live : (channels || []);
   const dates = [];
-  for (const ch of channels) {
+  for (const ch of use) {
     const re = /(\d{1,2})月(\d{1,2})日/g;
     let m;
     while ((m = re.exec(ch.期間 || ""))) dates.push([+m[1], +m[2]]);
@@ -939,6 +983,10 @@ function renderCoffee() {
     if (!grouped.has(name)) { grouped.set(name, []); order.push(name); }
     grouped.get(name).push(ch);
   });
+  // 同一家裡「還在跑的」排前面——使用者要找的是現在能用的優惠
+  for (const list of grouped.values()) {
+    list.sort((a, b) => (coffeeExpired(a) ? 1 : 0) - (coffeeExpired(b) ? 1 : 0));
+  }
 
   const jumpWrap = document.createElement("div");
   jumpWrap.className = "coffee-jump-wrap";
@@ -949,9 +997,14 @@ function renderCoffee() {
   order.forEach((name, i) => {
     const b = document.createElement("button");
     b.type = "button";
-    const n = grouped.get(name).reduce((s, c) => s + (c.優惠 || []).length, 0);
+    // 數字只算還沒結束的，否則「7-ELEVEN 38」裡有 10 筆是已經領不到的
+    const list = grouped.get(name);
+    const n = list.filter(c => !coffeeExpired(c))
+                  .reduce((s, c) => s + (c.優惠 || []).length, 0);
+    const dead = list.every(coffeeExpired);
     b.textContent = `${name}${n ? " " + n : ""}`;
-    b.title = `跳到 ${name} 的優惠`;
+    b.title = dead ? `${name} 這波檔期已結束` : `跳到 ${name} 的優惠`;
+    if (dead) b.classList.add("jump-dead");
     b.addEventListener("click", () => {
       // 收合狀態下捷徑仍看得到，點了要先展開，不然會捲到一個被藏起來的區段
       if (box.dataset.collapsed === "1") {
@@ -998,6 +1051,8 @@ function renderCoffee() {
       blk.className = "coffee-block";
       const way = (ch.管道 || "").trim();
       const when = (ch.期間 || "").trim();
+      const over = coffeeExpired(ch);
+      if (over) blk.classList.add("blk-expired");
       if (way || when) {
         const bh = document.createElement("div");
         bh.className = "blk-head";
@@ -1008,6 +1063,14 @@ function renderCoffee() {
           bh.appendChild(w);
         }
         if (when) bh.appendChild(document.createTextNode(when));
+        // 不直接把過期的砍掉：同一篇文章常整批一起更新，留著並標清楚，
+        // 比「東西忽然不見了」好懂
+        if (over) {
+          const tag = document.createElement("span");
+          tag.className = "blk-over";
+          tag.textContent = "已結束";
+          bh.appendChild(tag);
+        }
         blk.appendChild(bh);
       }
       sec.appendChild(blk);
