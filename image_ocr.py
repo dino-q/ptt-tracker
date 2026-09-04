@@ -161,6 +161,9 @@ PROMPT = """你在讀一張台灣 PTT 省錢版文章裡的圖片，通常是優
 """
 
 MAX_TEXT_CHARS = 1800
+# 單張圖只重試 2 次（而不是預設 3）。一輪要讀二十幾張，每張硬拚重試會把
+# 30 分鐘的 Actions job 吃光；這輪讀不到，下一輪還會再讀。
+IMAGE_ATTEMPTS = 2
 
 
 def clean_ocr_text(text: str, max_chars: int = MAX_TEXT_CHARS) -> str:
@@ -201,12 +204,14 @@ def read_image_url(url: str, quiet: bool = True) -> str:
         data = path.read_bytes()
 
     types = gemini_client.parts()
-    resp = gemini_client.generate(
+    # 用 generate_ex 拿得到真正的失敗原因。只用 generate() 的話 log 上永遠是
+    # 「Gemini 不可用」，分不出速率限制、金鑰錯還是圖片格式問題。
+    resp, err = gemini_client.generate_ex(
         [types.Part.from_bytes(data=data, mime_type=_sniff_mime(data)),
          types.Part.from_text(text=PROMPT)],
-        label="圖片辨識", quiet=quiet)
+        label="圖片辨識", quiet=quiet, attempts=IMAGE_ATTEMPTS)
     if resp is None:
-        raise RuntimeError("Gemini 不可用")
+        raise RuntimeError(err or "Gemini 沒有回應")
     text = clean_ocr_text(resp.text or "")
     # 模型明講沒東西可讀時回空字串，不要把「無相關資訊」四個字塞進使用者的摘要
     if text.replace(" ", "") in {"無相關資訊", "無相關資訊。"}:

@@ -130,7 +130,24 @@
 | `available()` | 有金鑰且裝得起 SDK 才回 True | 呼叫端拿它決定要不要進入整段流程 |
 | `parts()` | 回 `google.genai.types` | 讓呼叫端組 Part 而不必各自處理 ImportError |
 | `generate(contents, config, label, quiet)` | 打一次 Gemini，內建重試＋備援模型；失敗回 `None` 不丟例外 | **要調重試或換模型一律改這裡。** 咖啡情報與圖片辨識都吃這支；複製出去兩邊遲早分岔。`quiet=True` 給「一輪打很多次」的場景，避免同一個錯誤刷滿 log |
+| `REQUEST_TIMEOUT_MS`（120 秒） | 單次呼叫硬上限 | SDK 預設**不設 timeout**，一個卡住的請求會拖到整個 Actions job 撞 30 分鐘上限。實測單張圖 ~90 秒，所以給 120 秒 |
+| `MIN_INTERVAL_SECONDS`（4 秒） | 兩次呼叫最小間隔 | 免費層額度很小，爆量打只會失敗＋重試把情況弄更糟 |
 | `MODEL` / `FALLBACK_MODEL` | `gemini-3.8-flash` → `gemini-2.5-flash` | 環境變數 `GEMINI_MODEL` / `GEMINI_MODEL_FALLBACK` 可覆寫。3.8-flash 常回 503「high demand」，2026-09-04 線上第一輪就是靠備援跑成功的 |
+
+### ⛔ Gemini 免費層額度：**每個模型每天 20 次**（2026-09-04 實測）
+
+錯誤原文：`429 RESOURCE_EXHAUSTED … quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier, limit: 20`
+
+這個數字決定了整個功能能做到什麼程度，**改任何跟 Gemini 有關的用量之前先看這條**：
+
+- 一天 16 輪排程。咖啡情報只有「發現新文章」才呼叫（平常沿用，不花額度）。
+- 圖片辨識一篇最多 2 張圖＝2 次呼叫。`IMAGE_BUDGET` 預設壓到 **2 篇/輪**。
+- **咖啡情報排在圖片辨識前面**（`build_site.main`）：置頂區塊是使用者一進站就看到的，
+  優先權高於逐輪補圖。順序反過來的話，圖片會把額度吃光、置頂區直接開天窗。
+- 保險三道：`IMAGE_PHASE_SECONDS`（480 秒上限）、`MAX_CONSECUTIVE_FAILURES`（連 4 篇失敗就停手）、
+  `IMAGE_ATTEMPTS`（單張只重試 2 次）。撞到額度時 log 會明講。
+- **開通付費後**：把 `PTT_IMAGE_BUDGET` 環境變數調大（12 以上）才有辦法在幾小時內把
+  存量文章補完；否則 119 篇要補好幾天。
 
 ## 咖啡情報（🆕 2026-09-04）
 

@@ -189,7 +189,7 @@ class ReadImageUrlTests(unittest.TestCase):
             text = "無相關資訊"
         with patch("image_ocr._download_image", self._fake_download(b"\x89PNG\r\n\x1a\n")), \
              patch("image_ocr.gemini_client.parts") as parts, \
-             patch("image_ocr.gemini_client.generate", return_value=Resp()):
+             patch("image_ocr.gemini_client.generate_ex", return_value=(Resp(), None)):
             parts.return_value.Part.from_bytes.return_value = object()
             parts.return_value.Part.from_text.return_value = object()
             self.assertEqual(image_ocr.read_image_url("https://i.imgur.com/a.jpg"), "")
@@ -197,8 +197,10 @@ class ReadImageUrlTests(unittest.TestCase):
     def test_gemini_unavailable_raises_so_caller_can_retry(self):
         with patch("image_ocr._download_image", self._fake_download(b"\x89PNG\r\n\x1a\n")), \
              patch("image_ocr.gemini_client.parts"), \
-             patch("image_ocr.gemini_client.generate", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "Gemini 不可用"):
+             patch("image_ocr.gemini_client.generate_ex",
+                   return_value=(None, "429: rate limit")):
+            # 錯誤原因必須原樣傳出去，不能被吃成一句「Gemini 不可用」
+            with self.assertRaisesRegex(RuntimeError, "429: rate limit"):
                 image_ocr.read_image_url("https://i.imgur.com/a.jpg")
 
     def test_passes_sniffed_mime_not_extension(self):
@@ -207,7 +209,7 @@ class ReadImageUrlTests(unittest.TestCase):
             text = "拿鐵買一送一"
         with patch("image_ocr._download_image", self._fake_download(b"\x89PNG\r\n\x1a\nrest")), \
              patch("image_ocr.gemini_client.parts") as parts, \
-             patch("image_ocr.gemini_client.generate", return_value=Resp()):
+             patch("image_ocr.gemini_client.generate_ex", return_value=(Resp(), None)):
             image_ocr.read_image_url("https://i.imgur.com/a.jpg")
         kwargs = parts.return_value.Part.from_bytes.call_args.kwargs
         self.assertEqual(kwargs["mime_type"], "image/png")

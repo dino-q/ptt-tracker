@@ -5,8 +5,10 @@
 GitHub Actions 排程呼叫；本機也可測：.venv\\Scripts\\python.exe scripts\\build_site.py
 """
 import json
+import os
 import re
 import sys
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -72,8 +74,22 @@ def fill_previews(results: list[dict], old: dict | None, articles: dict,
     return reused, fetched
 
 
+# 圖片辨識最多佔用多久。整個 Actions job 上限 30 分鐘，PTT 掃描本身要 2 分鐘，
+# 留足夠餘裕給後面的熱門掃描與部署。超時就把剩下的留給下一輪。
+IMAGE_PHASE_SECONDS = 480
+# 連續幾篇整篇讀失敗就停手。Gemini 掛掉或撞額度時，硬跑完剩下的只是把
+# job 時間和額度一起燒掉，一篇也救不回來。
+MAX_CONSECUTIVE_FAILURES = 4
+
+
+# 每輪最多讀幾篇。⚠️ 這個數字受 Gemini 免費層「每個模型每天 20 次」限制
+# （2026-09-04 實測）：一篇最多 2 張圖＝2 次呼叫，一天 16 輪。
+# 開通付費之後把 PTT_IMAGE_BUDGET 調大（12 以上）才有辦法在幾小時內補完。
+IMAGE_BUDGET = int(os.environ.get("PTT_IMAGE_BUDGET", "2"))
+
+
 def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
-                   budget: int = 12) -> tuple[int, int, int]:
+                   budget: int | None = None) -> tuple[int, int, int]:
     """為省錢文補圖片文字。
 
     已部署資料的 checked/text 直接沿用；每輪只處理有限篇，讓舊資料逐輪補齊、
@@ -83,6 +99,7 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
     那批 46% 雜訊如果照樣沿用，就會永遠留在線上。引擎對不上的一律當成沒讀過，
     並先把舊區塊從 preview／body 清掉再重讀。
     """
+    budget = IMAGE_BUDGET if budget is None else budget
     ocr_available = gemini_client.available()
     old_map = {
         r.get("url"): r for r in (old or {}).get("results", [])
@@ -90,6 +107,10 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
     }
     client = None
     reused = processed = recognized = 0
+    started = time.monotonic()
+    consecutive_failures = 0
+    stopped = ""
+    quota_hit = False
     for result in results:
         previous = old_map.get(result.get("url")) or {}
         # 沒有 ocr_engine 欄位的＝Tesseract 時代的舊資料，一律重讀
@@ -117,7 +138,13 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
                 articles[aid]["body"] = strip_ocr_block(articles[aid].get("body", ""))
         if not ocr_available:
             continue
-        if processed >= budget:
+        if processed >= budget or stopped:
+            continue
+        if time.monotonic() - started > IMAGE_PHASE_SECONDS:
+            stopped = f"超過 {IMAGE_PHASE_SECONDS} 秒上限"
+            continue
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            stopped = f"連續 {consecutive_failures} 篇讀失敗"
             continue
         aid = article_id(result.get("url") or "")
         package = articles.get(aid)
@@ -139,14 +166,27 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
         package["body"] = append_ocr_block(package.get("body", ""), outcome["text"])
         if outcome["text"]:
             recognized += 1
+        # 只有「整篇都沒讀成功」才算一次失敗；部分成功代表 Gemini 還活著
+        if outcome["errors"] and not outcome["text"]:
+            consecutive_failures += 1
+        else:
+            consecutive_failures = 0
         # 失敗要印出來。2026-09-04 踩到：6 篇讀失敗但 log 一個字都沒有，
         # 只能靠比對線上 JSON 才發現 imgur 全數 403——別再讓失敗變黑盒。
         for err in outcome["errors"][:3]:
-            print(f"  圖片讀取失敗 {err}")
+            # 額度訊息很長，截斷才不會把 log 洗掉
+            print(f"  圖片讀取失敗 {err[:160]}")
+        if any("RESOURCE_EXHAUSTED" in e or "429" in e for e in outcome["errors"]):
+            quota_hit = True
         result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
         articles[aid] = package
     if not ocr_available:
         print("圖片辨識：Gemini 不可用（缺 GEMINI_API_KEY 或 google-genai）；本輪不讀新圖片")
+    if stopped:
+        print(f"圖片辨識：本輪提早停手（{stopped}），剩下的留給下一輪")
+    if quota_hit:
+        print("圖片辨識：⚠️ 撞到 Gemini 免費層每日額度（每個模型 20 次／天）。"
+              "要讓圖片辨識實際可用需要開通付費，或把 PTT_IMAGE_BUDGET 壓更低。")
     return reused, processed, recognized
 
 
@@ -217,23 +257,12 @@ def main() -> None:
     mark_new_results(money["results"], (old_money or {}).get("results"))
     reused, fetched = fill_previews(money["results"], old_money, fresh_articles)
     print(f"money 摘要：沿用 {reused} 篇、新抓 {fetched} 篇")
-    ocr_reused, ocr_processed, ocr_recognized = fill_image_ocr(
-        money["results"], old_money, fresh_articles,
-    )
-    print(
-        f"money 圖片辨識（{OCR_ENGINE}）：沿用 {ocr_reused} 篇、"
-        f"讀 {ocr_processed} 篇、讀到內容 {ocr_recognized} 篇"
-    )
-    (out_dir / "money.json").write_text(json.dumps({
-        "updated_at": now,
-        "note": money["note"],
-        "categories": CATEGORY_NAMES,
-        "results": money["results"],
-    }, ensure_ascii=False), encoding="utf-8")
-    print(f"money.json：{len(money['results'])} 篇")
 
-    # 咖啡情報（NOWnews 週更專欄）→ 省錢頁的置頂區塊。
-    # 這條完全獨立於 PTT 掃描：抓不到、沒金鑰、模型壅塞都只是沿用上一版，不影響其他資料。
+    # ⚠️ 咖啡情報要排在圖片辨識**前面**。Gemini 免費層是「每個模型每天 20 次」
+    # （2026-09-04 實測 429：GenerateRequestsPerDayPerProjectPerModel-FreeTier）。
+    # 圖片辨識一輪就能把整天的額度吃光，先跑它的話置頂區塊會直接開天窗——
+    # 而置頂區塊是使用者一進站就看到的東西，優先權比逐輪補圖高。
+    # 咖啡那段只有「發現新文章」時才會真的呼叫，平常沿用不花額度。
     try:
         from coffee_news import build as build_coffee
         coffee = build_coffee(fetch_old("coffee"))
@@ -248,6 +277,21 @@ def main() -> None:
             print("coffee.json：這輪沒有可用的咖啡情報，略過")
     except Exception as exc:                                  # noqa: BLE001
         print(f"咖啡情報整段失敗（{type(exc).__name__}: {exc}），不影響其他資料")
+
+    ocr_reused, ocr_processed, ocr_recognized = fill_image_ocr(
+        money["results"], old_money, fresh_articles,
+    )
+    print(
+        f"money 圖片辨識（{OCR_ENGINE}）：沿用 {ocr_reused} 篇、"
+        f"讀 {ocr_processed} 篇、讀到內容 {ocr_recognized} 篇"
+    )
+    (out_dir / "money.json").write_text(json.dumps({
+        "updated_at": now,
+        "note": money["note"],
+        "categories": CATEGORY_NAMES,
+        "results": money["results"],
+    }, ensure_ascii=False), encoding="utf-8")
+    print(f"money.json：{len(money['results'])} 篇")
 
     old_hot = fetch_old("hot")
     hot_task = dict(tracks["hot-now"]["task"])
