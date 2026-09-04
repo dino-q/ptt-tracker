@@ -176,8 +176,10 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
         for err in outcome["errors"][:3]:
             # 額度訊息很長，截斷才不會把 log 洗掉
             print(f"  圖片讀取失敗 {err[:160]}")
-        if any("RESOURCE_EXHAUSTED" in e or "429" in e for e in outcome["errors"]):
+        if any(gemini_client.is_daily_quota_error(e) for e in outcome["errors"]):
+            # 每日額度用完是確定性的：這一輪剩下的篇數再試也只是白燒額度與時間
             quota_hit = True
+            stopped = "Gemini 每日額度用完"
         result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
         articles[aid] = package
     if not ocr_available:
@@ -185,7 +187,7 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
     if stopped:
         print(f"圖片辨識：本輪提早停手（{stopped}），剩下的留給下一輪")
     if quota_hit:
-        print("圖片辨識：⚠️ 撞到 Gemini 免費層每日額度（每個模型 20 次／天）。"
+        print("圖片辨識：【注意】撞到 Gemini 免費層每日額度（每個模型 20 次／天）。"
               "要讓圖片辨識實際可用需要開通付費，或把 PTT_IMAGE_BUDGET 壓更低。")
     return reused, processed, recognized
 

@@ -24,6 +24,20 @@ ATTEMPTS_PER_MODEL = 3
 _RETRYABLE = ("503", "429", "500", "502", "504", "unavailable",
               "timeout", "deadline", "resource_exhausted", "rate limit", "quota")
 
+# 「每天 N 次」的額度用完了——這種 429 跟尖峰塞車不同，**同一輪內不可能恢復**，
+# 重試只是把時間和剩餘額度一起燒掉。額度是「每個模型」各自計算，所以還是要
+# 換下一個模型試，但同一個模型不再重試。2026-09-04 實測：額度耗盡那輪，
+# 2 篇文章 4 張圖打了 16 次全 429。
+_DAILY_QUOTA_MARKS = ("perday", "per day", "requests per day", "freetier", "free_tier")
+
+
+def is_daily_quota_error(message: str) -> bool:
+    low = (message or "").lower().replace("-", "").replace("_", "")
+    if "resource_exhausted" not in (message or "").lower() and "429" not in (message or ""):
+        return False
+    return any(m.replace("-", "").replace("_", "").replace(" ", "") in low.replace(" ", "")
+               for m in _DAILY_QUOTA_MARKS)
+
 # 兩次呼叫之間的最小間隔。2026-09-04 踩到：一輪連打 ~24 次圖片辨識，
 # 有 9 次失敗且 imgur／mopix 都有（＝不是圖床問題）。免費層是每分鐘十幾次的量級，
 # 爆量打不但會失敗，重試還會讓情況更糟。慢一點跑得完比快而失敗好。
@@ -111,6 +125,9 @@ def generate_ex(contents, *, config=None, label: str = "Gemini",
                 last = exc
                 if not any(k in str(exc).lower() for k in _RETRYABLE):
                     return None, f"{type(exc).__name__}: {exc}"
+                # 每日額度用完：換下一個模型（額度各自計算），但同一個模型別再試
+                if is_daily_quota_error(str(exc)):
+                    break
                 if attempt < tries:
                     time.sleep(2.0 * attempt)
     return None, f"兩個模型都不可用（{type(last).__name__}: {last}）"

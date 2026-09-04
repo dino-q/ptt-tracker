@@ -144,6 +144,14 @@
 - 圖片辨識一篇最多 2 張圖＝2 次呼叫。`IMAGE_BUDGET` 預設壓到 **2 篇/輪**。
 - **咖啡情報排在圖片辨識前面**（`build_site.main`）：置頂區塊是使用者一進站就看到的，
   優先權高於逐輪補圖。順序反過來的話，圖片會把額度吃光、置頂區直接開天窗。
+- **`is_daily_quota_error()`**：把「每日額度用完」跟「尖峰塞車」分開。兩者都是
+  429/RESOURCE_EXHAUSTED，但處理相反——尖峰要重試、每日額度同一輪內**不可能**恢復。
+  額度是每個模型各自算，所以仍會換下一個模型試，但同一個模型不再重試。
+  撞到就整輪停手（`build_site` 設 `stopped`）。實測代價：不擋的話 2 篇文章 4 張圖打 16 次全 429。
+- ⚠️ **print 的字串不要放 emoji**：`⚠️` 讓 `build_site.py` 在 cp950 主控台直接
+  `UnicodeEncodeError` 崩潰（Actions 是 UTF-8 看不出來，本機跑就炸）。用「【注意】」這種純文字。
+  ⚠️ 但 `coffee_news.PROMPT` 裡的 `📍`／`🟡` **要留著**——那是在告訴 Gemini
+  「NowNews 文章用這種符號標管道」，不是輸出。
 - 保險三道：`IMAGE_PHASE_SECONDS`（480 秒上限）、`MAX_CONSECUTIVE_FAILURES`（連 4 篇失敗就停手）、
   `IMAGE_ATTEMPTS`（單張只重試 2 次）。撞到額度時 log 會明講。
 - **開通付費後**：把 `PTT_IMAGE_BUDGET` 環境變數調大（12 以上）才有辦法在幾小時內把
