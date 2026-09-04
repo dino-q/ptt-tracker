@@ -139,6 +139,10 @@ def fill_image_ocr(results: list[dict], old: dict | None, articles: dict,
         package["body"] = append_ocr_block(package.get("body", ""), outcome["text"])
         if outcome["text"]:
             recognized += 1
+        # 失敗要印出來。2026-09-04 踩到：6 篇讀失敗但 log 一個字都沒有，
+        # 只能靠比對線上 JSON 才發現 imgur 全數 403——別再讓失敗變黑盒。
+        for err in outcome["errors"][:3]:
+            print(f"  圖片讀取失敗 {err}")
         result["cats"] = classify(f"{result.get('title', '')}\n{result.get('preview', '')}")
         articles[aid] = package
     if not ocr_available:

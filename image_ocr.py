@@ -33,6 +33,14 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 # 換引擎時把這個字串改掉，build_site 就會把舊引擎讀過的文章全部重讀一次。
 # 沒有這個標記的話，Tesseract 時代那批 46% 雜訊會被永遠「沿用」下去。
 OCR_ENGINE = "gemini-1"
+
+# ⚠️ 不要加 Referer。2026-09-04 實測：帶 `Referer: https://www.ptt.cc/` 時
+# i.imgur.com 一律回 403（防盜連），不帶就 200——而 imgur 是 PTT 最常用的圖床。
+# 這個 bug 從 Tesseract 時代就在，只是當時失敗沒印進 log 所以沒人發現。
+_REQUEST_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/127.0 Safari/537.36"),
+}
 # 只連已知公開圖床。PTT 內文由任何人控制，任意網域即使先查 DNS 為公網，
 # 仍可能在 requests 第二次解析時 DNS rebinding 到內網；白名單移除該攻擊者控制面。
 TRUSTED_IMAGE_HOSTS = {
@@ -102,7 +110,7 @@ def _download_image(url: str, target: Path, session: requests.Session | None = N
             raise ValueError("圖片網址不是公開網路位址")
         response = client.get(
             current,
-            headers={"User-Agent": "PTT-Assistant-Image-OCR/1.0", "Referer": "https://www.ptt.cc/"},
+            headers=_REQUEST_HEADERS,
             timeout=(8, 20), stream=True, allow_redirects=False,
         )
         if response.is_redirect or response.is_permanent_redirect:

@@ -59,6 +59,43 @@ class ImageUrlTests(unittest.TestCase):
         self.assertEqual(client.calls, 1)
 
 
+    def test_no_referer_header_imgur_blocks_hotlinking(self):
+        """⚠️ 迴歸守門：帶 Referer 時 i.imgur.com 一律回 403（防盜連），
+        而 imgur 是 PTT 最常用的圖床。2026-09-04 實測 11 張圖 0 成功，拿掉後 11/11。
+        有人日後「順手補個 Referer 比較像瀏覽器」就會再把它弄壞。"""
+        self.assertNotIn("Referer", image_ocr._REQUEST_HEADERS)
+        self.assertNotIn("referer", {k.lower() for k in image_ocr._REQUEST_HEADERS})
+
+        seen = {}
+
+        class Resp:
+            is_redirect = is_permanent_redirect = False
+            headers = {"Content-Type": "image/png", "Content-Length": "4"}
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, n):
+                return [b"fake-image-bytes"]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class Client:
+            def get(self, url, **kw):
+                seen.update(kw.get("headers") or {})
+                return Resp()
+
+        with tempfile.TemporaryDirectory() as tmp,              patch("image_ocr._is_public_url", return_value=True):
+            image_ocr._download_image("https://i.imgur.com/a.png",
+                                      Path(tmp) / "a.png", session=Client())
+        self.assertNotIn("Referer", seen)
+        self.assertIn("User-Agent", seen)
+
+
 class MimeSniffTests(unittest.TestCase):
     def test_sniffs_by_magic_bytes_not_extension(self):
         """副檔名是 PTT 文章作者寫的，不能信；型別要靠檔頭判。"""
