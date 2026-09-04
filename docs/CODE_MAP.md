@@ -114,6 +114,7 @@
 |---|---|---|
 | `extract_image_urls(text, max_images)` | 從 PTT 文章純文字擷取直接圖片網址，支援 Imgur 頁面網址正規化 | ♻️ 換引擎時原樣保留：這層跟用哪個引擎無關 |
 | `_is_public_url` / `_download_image` | 白名單圖床＋每次 redirect 前重驗＋公網 IP＋8 MB 上限 | ♻️ 同上保留。⚠️ 驗證必須在**跟 redirect 之前**，等 requests 跟完 SSRF 已經發生 |
+| `_REQUEST_HEADERS` | 下載圖片用的 header | ⛔ **絕對不要加 `Referer`**。2026-09-04 實測：帶 `Referer: https://www.ptt.cc/` 時 i.imgur.com 一律回 403（防盜連），11 張圖 0 成功；拿掉後 11/11，i.mopix.cc 未受影響。imgur 是 PTT 最常用的圖床，這條踩下去等於整個功能失效。`tests/test_image_ocr.py::test_no_referer_header_imgur_blocks_hotlinking` 守著 |
 | `_sniff_mime(data)` | 🆕 靠 magic bytes 判圖片型別 | 副檔名是 PTT 文章作者寫的，不能信 |
 | `read_image_url(url)` | 🆕 下載單張圖交給 Gemini 讀，回純文字 | 模型回「無相關資訊」時轉成空字串，不要把這四個字塞進使用者的優惠摘要 |
 | `ocr_article_images(body, max_images)` | 讀文章內圖片，回 checked/image_urls/text/errors/**engine** | 沒圖片就不打 API；單張壞圖不中止整篇；**有任何錯就不標 checked**，下一輪重讀 |
