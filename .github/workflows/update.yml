@@ -33,6 +33,10 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 爬 PTT 產生資料
         run: python scripts/build_site.py
+        env:
+          # 咖啡情報的結構化擷取用。沒設這個 secret 也不會壞——
+          # coffee_news.py 找不到金鑰就安靜跳過，其餘資料照常產生。
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

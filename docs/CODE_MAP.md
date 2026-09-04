@@ -39,6 +39,7 @@
 | `run_hot(task, job)` | hot 意圖 v4：moptt 式收錄制（板級留言門檻→accepted_at→feed 依收錄時間排、舊文回鍋、收錄後凍結、保留10天）；設計依據見 docs/moptt_algorithm.md | 2026-08-23 v4 |
 | `hot_cats(board)` / `HOT_BOARD_CATEGORY` | 熱門文分類＝看板主題（八卦時事/棒球…），未知板用板名；config `hot_board_categories` 可覆蓋 | 🆕 與省錢的通路標籤是兩套 |
 | `select_hot_boards(...)` / `select_hot_probes(...)` / `ALWAYS_INCLUDE_HOT_BOARDS` | 全站熱門固定加入女板與 BG 板，去重後在全站驗證池各保留名額 | 預設 WomenTalk/Boy-Girl；config 可覆蓋 |
+| `always_boards`（hot.json 欄位）／前端 `alwaysBoard()` | 🆕 2026-09-04 固定收錄板（女板/BG）**豁免前端的天數窗**，預設熱門清單就看得到 | 這些板的文要過留言門檻常已 1-3 週，但討論度是現在才累積的；用發文時間擋等於永遠看不到（Dino：「不然熱門文章很無聊」）。板名由後端帶下來，不在前端寫死 |
 | `HOT_FEED_DAYS` / `HOT_FEED_LIMIT` / `HOT_PREVIEW_LIMIT` | 🆕 2026-09-04 feed 保留期（30 天）、顯示上限（1200 篇）、帶摘要的前 N 篇（120） | 由 10 天／400 篇放大，讓低流量板的舊文留得住。**實際涵蓋天數由先觸底的那個決定（目前是篇數）**；config 可用 `hot_feed_days`／`hot_feed_limit` 覆蓋 |
 | `_parse_article_dt` / `_thread_key` | 文章時間解析／討論串聚合鍵 | 🆕 |
 | `run_download(task, job)` | download 意圖：指定 urls 逐篇抓全文（可含留言）合併 TXT，job.file 給下載端點 | 🆕 2026-08-22 |
@@ -78,7 +79,27 @@
 - `scripts/build_site.py`：♻️ 調用 server.py 的 run_task/run_hot 產 `site/data/*.json`（Actions 與本機都能跑）。
 - `site/index.html`：唯讀靜態頁（省錢優惠＋熱門文章），部署在 https://dino-q.github.io/ptt-tracker/
   - 🆕 `triggerRefresh()`（2026-08-23）：「立即更新」鈕＝瀏覽器直呼 GitHub API workflow_dispatch → 輪詢 run 完成 → 偵測 money.json updated_at 變化 → 自動 reload；PAT 存 localStorage `ptt_gh_token`（僅該裝置），401/403 自動清除重導設定。測試：tests/verify_refresh.py（mock GitHub API 三情境）
-  - 🆕 `CAT_ALL_TIME`／`allTimeOn()`（2026-09-04）：熱門的「不限天數」分類。低流量板（女板/BG）能過留言門檻的文常已 1-3 週，會被預設 3 天窗整批濾掉——資料在 hot.json，畫面上一篇都沒有。此分類跳過 `dayOk`、固定依收錄時間新→舊排，並隱藏期間／排序鈕。測試：`tests/verify_alltime_tab.py`（真瀏覽器，斷言對著行為寫）
+  - ❌ ~~`CAT_ALL_TIME`「不限天數」分類~~（2026-09-04 加、同日移除）：它跟篩選面板的
+    「含回鍋（不分期間）」（`HOTMODE="all"`）做**完全同一件事**，兩個入口只會讓人搞混
+    （Dino：「含回鍋就是不限天數對吧」）。**不要再加回來**——要看全部舊文用含回鍋。
+    低流量板的可見性改由 `always_boards` 豁免處理。
+  - 🆕 `SORT="posted"`「依時間」（2026-09-04）：依**發文時間**（`hotPostTs`）排。
+    跟「最新熱門」（`SORT="time"`＝`accepted_at` 收錄時間）是兩件事——三週前的文
+    今天才過門檻被收錄，在「最新熱門」排很前面、在「依時間」會落到後面。
+  - 🆕 `BOARD_ORDER` / `orderBoards()` / `moveBoard()`（2026-09-04）：看板順序可自訂，
+    存 `localStorage.ptt_board_order`。展開看板篩選 →「調整順序」→ 每個板出現 ◀ ▶。
+    **沒排過的板依篇數接在後面**，所以新板不會被吃掉、也不必每次重排。
+    用左右鈕不用拖曳：手機上拖曳難精準，且要多帶一套指標事件處理。
+    測試：`tests/verify_hot_controls.py`（斷言順序真的改變＋重載後仍記得）
+  - 🆕 `setupClip()` / `.art-clip` / `.art-more`（2026-09-04）：閱讀器改成**漸進展開**。
+    舊做法 `.preview { max-height:72vh; overflow-y:auto }` 在手機上讓內容 4075px 擠進 608px 視窗，
+    頁面與卡片兩個捲軸互搶、滑動卡住。現在不裁成內捲框，先顯示 520px，按一次多放 900px。
+    ⚠️ **setupClip 必須在卡片 `.open` 之後才呼叫**——`display:none` 時 `scrollHeight` 是 0，
+    會誤判成「不夠長不用裁」（2026-09-04 實際踩到，用 `container._clip` ＋ rAF 延後）。
+    測試：`tests/verify_reader_expand.py`（真瀏覽器，斷言「內捲軸不存在」而非「按鈕存在」）
+  - 🆕 `scripts/preview_site.py` 的**代理**：本機沒有的檔案自動抓線上版。
+    少了它，`data/articles/*.json` 在本機是空的，前端會走「抓不到全文」的退路，
+    `fillArticle` 根本不會執行——驗收會在驗一個沒被觸發的程式路徑。
   - ⚠️ `dayFiltered` 必須寫成 `results.filter(r => dayOk(r))`。寫 `results.filter(dayOk)` 會讓 `filter` 的第二個參數（索引）跑進 `dayOk` 的 `allTime`，索引 ≥1 全是 truthy → 天數過濾整個失效（2026-09-04 實際踩到）
 - `.github/workflows/update.yml`：台灣 08–23 點每小時 cron（深夜停跑）＋push＋手動觸發，資料走 Pages artifact 不進 git 歷史。
 - `.github/workflows/ocr-ab.yml`：🆕 手動觸發的 OCR 收緊 A/B 對照，只產 artifact、不部署。
@@ -95,6 +116,59 @@
 | `_line_is_useful(line)` | 🆕 判斷一行有無資訊（≥2 中文字／價格日期數量／≥4 字母品牌名），拿不準回 True | ⚠️ 只在新 OCR 路徑用，且要搭配 `junk_conf_ceiling` 才敢丟；`clean_ocr_text` **不吃**它（否則會回頭誤刪已部署資料） |
 | `scripts/ocr_ab_compare.py` | 🆕 收緊前後並排對照報告（HTML＋JSON） | 必須在 Actions 跑（`.github/workflows/ocr-ab.yml`），本機 Windows 的 tesseract 版本不代表線上。⚠️ 報告刻意不用 `_line_is_useful` 算雜訊率——那是收緊時砍字的規則，拿它當尺必然得 0% |
 
+## 咖啡情報（🆕 2026-09-04）
+
+| 名稱 | 用途 | 備註 |
+|---|---|---|
+| `scripts/coffee_news.py` | 抓 NOWnews「本周咖啡優惠」週更專欄 → 結構化成 `site/data/coffee.json` | 🆕 新寫（不沿用 `run_task` 的原因：那是 PTT 掃描引擎，來源、解析、輸出格式全都不同） |
+| `coffee_news.find_latest()` | 兩個來源合併挑最新一篇 | ⚠️ **不要改回用 nownews 站內搜尋**：`/search?q=` 對程式化存取是壞的，2026-09-04 實測連只搜「咖啡」都回「查無符合資料」 |
+| `coffee_news.extract()` | 丟 Gemini 做結構化（通路／品項／原價／優惠價／期間） | 內含重試＋備援模型：3.8-flash 常回 503「high demand」，退到 2.5-flash |
+| `site/index.html:renderCoffee()` | 置頂區塊：通路捷徑 chips ＋ 依通路分組的優惠列 ＋ 可收合（狀態存 localStorage） | 只在省錢頁顯示；沒有 coffee.json 就整塊不出現，不留空殼 |
+
+**來源策略**（兩個都是純 HTTP，不需要瀏覽器）：
+
+- `https://feed.nownews.com/rss/7d948070-...`：官方 RSS，真實網址與時間，但只有最新 20 筆（全站混合）
+- `https://www.nownews.com/cat/life/`：生活分類頁，伺服器端渲染，補 RSS 被洗掉的漏
+- ❌ Google News RSS 找得到文章，但 `<link>` 是 JS 轉址頁、解不出真實網址，所以沒用
+
+**收錄範圍**（2026-09-04 Dino 兩次調整後的現況）：**只收 NOWnews**，標題同時含「咖啡」
+與優惠字樣（`COFFEE_RE` ＋ `DEAL_RE`）。⚠️ 一度改成只認精確片語「本周咖啡優惠」，
+實測**抓到 0 筆**——這系列標題不固定（五六日咖啡優惠／週末咖啡買一送一／開學開工咖啡優惠…），
+而當天真正有效的那篇反而被擋掉。別再改回精確片語。
+
+**「管道」欄位（門市／APP／LINE禮物／會員）**：文章用 `📍門市｜9月2日至9月6日`
+`📍APP｜9月2日至9月11日` `🟡LINE禮物（7-11電子票券）` 標示。
+**同一家超商不同管道的價格常常不一樣，不可以合併**——7-ELEVEN 一篇裡就有 5 種
+（LINE禮物／門市×2／APP×2）。schema 與 prompt 都明確要求分開填，前端也依管道分塊顯示。
+
+**沒有總期間時**：前端 `summarizeCoffeePeriod()` 會從各通路期間撈出所有「M月D日」，
+取最早與最晚合成範圍（例如 8/10～9/29）。否則收合態完全看不到日期，
+而「優惠到什麼時候」正是最該先看到的資訊。
+
+**（歷史）** 只認「本周咖啡優惠」的舊設定已作廢。
+
+
+**部署**：`update.yml` 需要 repo secret `GEMINI_API_KEY`；沒設也不會壞（會安靜跳過咖啡那段）。
+
+**Tor（設計主管）2026-09-04 審查後的必要修正**（改這塊前先看，別退回去）：
+
+- **預設收合**：`coffeeCollapsed()` 無記錄時回 `true`。54 筆優惠不該擋在文章清單前面；
+  收合態仍保留標題／來源／期間／通路捷徑當預覽。
+- **收合時點捷徑要先自動展開**，否則會捲到一個 `display:none` 的區段。
+- **捷徑鈕尺寸對齊 `.tab`**（padding 7px/`--space-4`、字級 .85rem）。原本 5px/.82rem
+  換算只有 30px 高，是全頁最小的可點擊目標，9 顆並排最容易點錯。現為 38px。
+- **`.coffee-jump-wrap::after` 右側漸層**＝「還能往右滑」的提示；沒有它使用者不知道右邊還有。
+- **`.coffee-deal .d-price s` 不可以加 `opacity`**。Tor 用 OKLab→sRGB 換算實測，
+  `opacity:.7` 讓對比度掉到 **3.33:1**（未達 WCAG AA 4.5:1）。刪除線本身已足夠表達語意。
+- **`aria-controls`**：收合鈕指向 `#coffee-collapsible`；`.art-more` 指向 clip 的 id
+  （原本掛 `aria-expanded` 但恆為 false，形同虛設）。
+- **`setupClip.finish()` 要轉移焦點**：按鈕被 remove 時鍵盤焦點會掉回 `<body>`。
+- **展開步長隨長度放大**（`max(900, full*0.25)`）：固定 900px 對兩萬 px 的長文要點 22 次。
+- **按鈕文案要講明「含留言」**：clip 同時包內文與留言，百分比是合計，不講會誤導。
+
+完整報告：`agent_team\workspace	or_design\PTT_Assistant6-09-04-coffee-section-and-progressive-reader.md`
+（還有幾項「可選」未做：內文與留言拆成兩個 clip、body 也做前 3 通路的漸進揭露、桌機不橫捲）
+
 ## 啟動器（.bat ＋ launcher）
 
 | 名稱 | 用途 | 備註 |
@@ -102,7 +176,7 @@
 | `啟動.bat` / `安裝.bat` | 雙擊入口，純 ASCII 外殼 | 用萬用字元解析中文檔名的目標（`PTT*.bat`／`????.bat`），檔案本身不含任何中文 |
 | `PTT工具.bat` | 檢查 venv → 叫 `scripts/launcher.py` | 純 ASCII |
 | `scripts/launcher.py` | 🆕 2026-09-04 中文主選單＋分流（[1] server.py／[2] ptt_tool.py／[3] preview_site.py） | **所有中文 UI 放這裡，不要搬回 .bat** |
-| `scripts/preview_site.py` | 🆕 預覽線上版 `site/`（缺資料自動抓線上 JSON），預設 port 8891 | 改 `site/index.html` 要用這個看；`啟動.bat` 的 [1] 是 server.py＋`web/index.html`，**兩者是不同頁面** |
+| `scripts/preview_site.py` | 🆕 預覽線上版 `site/`（缺資料自動抓線上 JSON），預設 port 8879 | 改 `site/index.html` 要用這個看；`啟動.bat` 的 [1] 是 server.py＋`web/index.html`，**兩者是不同頁面** |
 
 ⚠️ **.bat 一律純 ASCII，這是硬規則**（2026-09-04 踩到）：
 

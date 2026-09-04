@@ -24,7 +24,8 @@ sys.path.insert(0, str(ROOT))
 from ptt_tool import PTTClient
 from image_ocr import (append_ocr_block, clean_ocr_text, normalize_existing_ocr_block,
                        ocr_article_images, tesseract_command)
-from server import (CATEGORY_NAMES, article_id, article_package, default_tracks,
+from server import (ALWAYS_INCLUDE_HOT_BOARDS, CATEGORY_NAMES, article_id,
+                    article_package, default_tracks,
                     classify, mark_new_results, run_hot, run_task)
 
 LIVE_BASE = "https://dino-q.github.io/ptt-tracker/data"
@@ -212,6 +213,23 @@ def main() -> None:
     }, ensure_ascii=False), encoding="utf-8")
     print(f"money.json：{len(money['results'])} 篇")
 
+    # 咖啡情報（NOWnews 週更專欄）→ 省錢頁的置頂區塊。
+    # 這條完全獨立於 PTT 掃描：抓不到、沒金鑰、模型壅塞都只是沿用上一版，不影響其他資料。
+    try:
+        from coffee_news import build as build_coffee
+        coffee = build_coffee(fetch_old("coffee"))
+        if coffee:
+            (out_dir / "coffee.json").write_text(
+                json.dumps(coffee, ensure_ascii=False), encoding="utf-8")
+            channels = coffee.get("通路") or []
+            deals = sum(len(c.get("優惠") or []) for c in channels)
+            print(f"coffee.json：{len(channels)} 個通路、{deals} 筆優惠"
+                  f"（{coffee.get('article', {}).get('title', '')[:24]}）")
+        else:
+            print("coffee.json：這輪沒有可用的咖啡情報，略過")
+    except Exception as exc:                                  # noqa: BLE001
+        print(f"咖啡情報整段失敗（{type(exc).__name__}: {exc}），不影響其他資料")
+
     old_hot = fetch_old("hot")
     hot_task = dict(tracks["hot-now"]["task"])
     # moptt 式收錄登記簿：上一版結果＋獨立 ledger 檔一起傳入，收錄時間才能跨輪持久
@@ -235,6 +253,10 @@ def main() -> None:
         "updated_at": now,
         "note": hot["note"],
         "categories": CATEGORY_NAMES,
+        # 固定收錄的低流量板（女板/BG）。這些板的文要累積到過留言門檻常常已經 1-3 週，
+        # 但「討論度高」是現在才發生的事（留言持續在累積），用發文時間去擋等於永遠看不到。
+        # 前端據此讓它們豁免天數窗——Dino 2026-09-04：「不然熱門文章很無聊」。
+        "always_boards": ALWAYS_INCLUDE_HOT_BOARDS,
         "results": hot["results"],
     }, ensure_ascii=False), encoding="utf-8")
     # 登記簿拆獨立檔：只有 build 需要，不跟著頁面資料送給每個訪客

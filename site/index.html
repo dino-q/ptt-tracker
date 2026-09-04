@@ -194,15 +194,127 @@
     display: none; margin-top: var(--space-3); padding: var(--space-2) var(--space-3);
     background: var(--color-surface-2); border-left: 3px solid var(--color-accent);
     font-size: .88rem; white-space: pre-wrap; word-break: break-word;
-    max-height: 72vh; overflow-y: auto;
-    /* 內捲到頂/底時不把捲動動能繼續帶給外層頁面（雙捲軸互相搶滾感的主因） */
-    overscroll-behavior: contain;
+    /* 2026-09-04：拿掉 max-height + overflow-y。原本內文塞進 72vh 的內捲框，
+       手機上實測內容 4075px 擠進 608px 視窗（6.7 倍），變成頁面與卡片兩個捲軸互搶，
+       滑動會卡住。改成下面的「展開更多」漸進式展開，整頁只留一個捲軸。 */
   }
+  /* 漸進展開：超過門檻先裁切，按一次多放一段，最後一次全開 */
+  .art-clip { position: relative; overflow: hidden; }
+  .art-clip[data-clipped="1"]::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 64px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--color-surface-2));
+  }
+  .art-more {
+    display: block; width: 100%; margin-top: var(--space-2);
+    background: none; border: 1px dashed var(--color-line); border-radius: var(--radius-sm);
+    color: var(--color-accent); cursor: pointer; font: inherit; font-size: .85rem;
+    padding: 8px 4px;
+  }
+  .art-more:hover { border-color: var(--color-accent); }
+  .art-more:active { opacity: .7; }
   .card.open .preview { display: block; }
   .toggle {
     margin-top: var(--space-2); background: none; border: 0; color: var(--color-accent);
     cursor: pointer; font-size: .85rem; padding: 4px 2px;
   }
+
+  /* ---------- 咖啡情報置頂區塊（只在省錢頁、且有當週資料時出現） ---------- */
+  .coffee {
+    background: var(--color-surface); border: 1px solid var(--color-line);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius); box-shadow: var(--shadow-card);
+    padding: var(--space-5); margin-bottom: var(--space-4);
+  }
+  .coffee-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+  .coffee-head h2 {
+    margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 600;
+    flex: 1 1 auto; min-width: 0;
+  }
+  .coffee-meta { color: var(--color-ink-2); font-size: .8rem; }
+  .coffee-meta a { color: var(--color-ink-2); }
+  .coffee-toggle {
+    background: none; border: 1px solid var(--color-line); border-radius: var(--radius-pill);
+    color: var(--color-ink-2); cursor: pointer; font: inherit; font-size: .8rem; padding: 4px 12px;
+  }
+  .coffee-toggle:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  .coffee-period { margin-top: var(--space-2); font-size: .85rem; color: var(--color-ink-2); }
+  /* 通路捷徑：點了捲到該通路。橫向可捲，手機上不會擠成一團 */
+  .coffee-jump {
+    position: relative;
+    display: flex; gap: var(--space-2); margin-top: var(--space-3);
+    overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin;
+  }
+  /* 右側漸層＝「還能往右滑」的提示。9 個通路在 390px 手機上只看得到 4-5 個，
+     沒有提示使用者不會知道右邊還有（沿用 .art-clip 的遮罩技巧） */
+  .coffee-jump-wrap { position: relative; }
+  .coffee-jump-wrap::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 2px; width: 28px;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--color-surface));
+  }
+  /* 尺寸與視覺都對齊 .tab：原本 padding 5px/字級 .82rem 換算只有約 30px 高，
+     是全頁最小的可點擊目標，而且 9 顆並排最容易點錯隔壁（Tor 2026-09-04） */
+  .coffee-jump button {
+    flex: none; background: var(--color-surface); border: 1px solid var(--color-line);
+    border-radius: var(--radius-pill); color: var(--color-ink-2); cursor: pointer;
+    font: inherit; font-size: .85rem; padding: 7px var(--space-4); white-space: nowrap;
+  }
+  .coffee-jump button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  .coffee-jump button:active { filter: brightness(.97); }
+  .coffee-body { margin-top: var(--space-3); }
+  /* 收合時只藏真正重的清單；標題、來源、期間、通路捷徑都留著當預覽 */
+  .coffee[data-collapsed="1"] #coffee-collapsible { display: none; }
+  .coffee-ch { padding-top: var(--space-3); border-top: 1px dashed var(--color-line); }
+  .coffee-ch:first-child { border-top: 0; padding-top: 0; }
+  .coffee-ch > h3 {
+    margin: 0 0 var(--space-1); font-size: .92rem; font-weight: 600;
+    display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
+  }
+  .coffee-ch .ch-period { font-weight: 400; font-size: .78rem; color: var(--color-ink-2); }
+  /* 管道（門市／APP／LINE禮物／會員）：同一家超商不同管道的價格常常不一樣，
+     這是「要去哪裡才買得到」的關鍵資訊，不能只當成期間的一部分丟掉 */
+  .coffee-block { margin-top: var(--space-2); }
+  .coffee-block:first-of-type { margin-top: var(--space-1); }
+  .coffee-block > .blk-head {
+    display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
+    font-size: .78rem; color: var(--color-ink-2); margin-bottom: 2px;
+  }
+  .blk-way {
+    background: var(--color-accent-soft); color: var(--color-accent);
+    border-radius: var(--radius-pill); padding: 1px 8px; font-weight: 600;
+  }
+  .coffee-deal {
+    display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
+    font-size: .85rem; padding: 3px 0;
+  }
+  .coffee-deal .d-item { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+  .coffee-deal .d-rule { color: var(--color-accent); font-weight: 600; white-space: nowrap; }
+  .coffee-deal .d-price { color: var(--color-ink-2); font-size: .78rem; white-space: nowrap; }
+  /* Tor 2026-09-04 實測：opacity .7 讓對比度掉到 3.33:1（未達 WCAG AA 4.5:1）。
+     刪除線本身已足夠表達「這是被取代的舊價」，不需要再靠降對比加強。 */
+  .coffee-deal .d-price s { opacity: 1; }
+  /* 捲到通路時給一下視覺提示，不然點了不知道跳去哪 */
+  @media (prefers-reduced-motion: no-preference) {
+    .coffee-ch.flash { animation: coffee-flash 1.2s var(--ease-out); }
+  }
+  @keyframes coffee-flash { from { background: var(--color-accent-soft); } to { background: transparent; } }
+
+  /* 看板排序編輯：整組不可斷行，否則 ◀ ▶ 會跟隔壁板名分家 */
+  .bf-item {
+    display: inline-flex; align-items: stretch; white-space: nowrap;
+    border: 1px solid var(--color-line); border-radius: var(--radius-pill);
+    background: var(--color-surface); overflow: hidden;
+  }
+  .bf-item .bf-name { padding: 7px var(--space-3); font-size: .85rem; color: var(--color-ink); }
+  .bf-move {
+    background: var(--color-chip); border: 0; color: var(--color-ink-2);
+    cursor: pointer; font: inherit; font-size: .8rem; padding: 0 10px; min-width: 34px;
+  }
+  .bf-move:hover:not(:disabled) { background: var(--color-accent-soft); color: var(--color-accent); }
+  .bf-move:disabled { opacity: .35; cursor: default; }
+  .bf-edit.active { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
+
   /* 全文閱讀器 */
   .art-body { font-size: .9rem; line-height: 1.7; }
   .art-body .art-line:empty::after { content: "\00a0"; }
@@ -272,6 +384,8 @@
     <button class="viewbtn" data-view="hot">熱門文章</button>
   </nav>
 
+  <section id="coffee" class="coffee" hidden aria-labelledby="coffee-h"></section>
+
   <div class="results-toolbar">
     <div id="note" class="note" style="display:none">
       <span id="note-text"></span>
@@ -304,6 +418,7 @@
         <button class="tab active" data-sort="time">最新熱門</button>
         <button class="tab" data-sort="rising">正在起飛</button>
         <button class="tab" data-sort="comments">總留言數</button>
+        <button class="tab" data-sort="posted">依時間</button>
       </span>
       <div class="tabs" id="board-filter" style="display:none"></div>
     </div>
@@ -324,10 +439,9 @@ let VIEW = "money";
 let ACTIVE_CAT = "全部";
 let SORT = "time";   // 最新熱門＝moptt 收錄時間 feed 序
 let DAYS = 3;
-// 「不限天數」分類：低流量板（女板/BG）能過留言門檻的文常已 1-3 週，會被預設 3 天窗口整批濾掉。
-// 這個分類跳過天數過濾、固定依收錄時間新→舊排，讓那些板真的看得到。保留期由後端 feed 決定。
-const CAT_ALL_TIME = "不限天數";
-const allTimeOn = () => ACTIVE_CAT === CAT_ALL_TIME;
+// 註：曾經有個「不限天數」分類，但它跟篩選面板裡的「含回鍋（不分期間）」模式
+// 做的是同一件事（都是跳過天數窗），兩個入口只會讓人搞混。2026-09-04 拿掉分類、
+// 保留模式切換。低流量板（女板/BG）的可見性改由 always_boards 豁免處理。
 
 function loadPins() {
   try { return new Set(JSON.parse(localStorage.getItem("ptt_pins") || "[]")); }
@@ -349,6 +463,42 @@ function saveBoardExcl() {
 let BOARD_EXCL = loadBoardExcl();
 const boardShown = r => !r.board || !BOARD_EXCL.has(r.board);
 
+// 自訂看板順序。空陣列＝沿用預設（依篇數多寡）。
+// 用「左右移動鈕」而不是拖曳：手機上拖曳很難精準，而且要多帶一套指標事件處理。
+function loadBoardOrder() {
+  try { return JSON.parse(localStorage.getItem("ptt_board_order") || "[]"); }
+  catch (e) { return []; }
+}
+function saveBoardOrder() {
+  try { localStorage.setItem("ptt_board_order", JSON.stringify(BOARD_ORDER)); } catch (e) {}
+}
+let BOARD_ORDER = loadBoardOrder();
+let BF_EDIT = false;          // 排序編輯模式（不記憶，每次開頁都是關的）
+
+/* 依自訂順序排看板：排過的照自訂順序在前，沒排過的（新出現的板）依篇數接在後面。
+   這樣新板不會被吃掉，也不必每次有新板就重排一次。 */
+function orderBoards(names, counts) {
+  const pos = new Map(BOARD_ORDER.map((n, i) => [n, i]));
+  return [...names].sort((a, b) => {
+    const pa = pos.has(a) ? pos.get(a) : Infinity;
+    const pb = pos.has(b) ? pos.get(b) : Infinity;
+    if (pa !== pb) return pa - pb;
+    return counts[b] - counts[a];
+  });
+}
+
+function moveBoard(names, name, delta) {
+  // 以「目前畫面上看到的順序」為基準寫回自訂順序，使用者才不會覺得跳掉
+  const cur = [...names];
+  const i = cur.indexOf(name);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= cur.length) return false;
+  cur.splice(j, 0, cur.splice(i, 1)[0]);
+  BOARD_ORDER = cur;
+  saveBoardOrder();
+  return true;
+}
+
 // 看板膠囊預設收折（控制項列太多），展開狀態記瀏覽器
 function loadBFOpen() {
   // 篩選面板本身就是收合層，看板膠囊在面板內預設展開
@@ -361,7 +511,7 @@ function renderBoardFilter(results) {
   box.innerHTML = "";
   const counts = {};
   for (const r of results) if (r.board) counts[r.board] = (counts[r.board] || 0) + 1;
-  const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const names = orderBoards(Object.keys(counts), counts);
   if (names.length < 2) { box.style.display = "none"; return; }
 
   const toggle = document.createElement("button");
@@ -377,7 +527,52 @@ function renderBoardFilter(results) {
   box.appendChild(toggle);
 
   if (BF_OPEN) {
-    for (const n of names) {
+    const edit = document.createElement("button");
+    edit.className = "tab bf-edit" + (BF_EDIT ? " active" : "");
+    edit.textContent = BF_EDIT ? "完成排序" : "調整順序";
+    edit.setAttribute("aria-pressed", BF_EDIT ? "true" : "false");
+    edit.addEventListener("click", () => {
+      BF_EDIT = !BF_EDIT;
+      renderBoardFilter(results);
+    });
+    box.appendChild(edit);
+    if (BF_EDIT && BOARD_ORDER.length) {
+      const reset = document.createElement("button");
+      reset.className = "tab bf-reset";
+      reset.textContent = "還原預設";
+      reset.title = "改回依篇數多寡排列";
+      reset.addEventListener("click", () => {
+        BOARD_ORDER = [];
+        saveBoardOrder();
+        renderBoardFilter(results);
+      });
+      box.appendChild(reset);
+    }
+
+    names.forEach((n, idx) => {
+      if (BF_EDIT) {
+        // 編輯模式：整組（← 板名 →）包在一起，避免左右鈕跟隔壁板的斷在不同行
+        const grp = document.createElement("span");
+        grp.className = "bf-item";
+        const mk = (label, delta, disabled) => {
+          const m = document.createElement("button");
+          m.className = "bf-move";
+          m.type = "button";
+          m.textContent = label;
+          m.disabled = disabled;
+          m.setAttribute("aria-label", `把 ${n} 往${delta < 0 ? "前" : "後"}移`);
+          m.addEventListener("click", () => {
+            if (moveBoard(names, n, delta)) renderBoardFilter(results);
+          });
+          return m;
+        };
+        const label = document.createElement("span");
+        label.className = "bf-name";
+        label.textContent = `${n} ${counts[n]}`;
+        grp.append(mk("◀", -1, idx === 0), label, mk("▶", 1, idx === names.length - 1));
+        box.appendChild(grp);
+        return;
+      }
       const b = document.createElement("button");
       const shown = !BOARD_EXCL.has(n);
       b.className = "tab" + (shown ? " active" : "");
@@ -390,7 +585,7 @@ function renderBoardFilter(results) {
         if (d) { renderTabs(d); applyFilters(d); }
       });
       box.appendChild(b);
-    }
+    });
   }
   box.style.display = "flex";
 }
@@ -410,7 +605,9 @@ function updateFilterBtn() {
   const isHot = !!(d && d.results.some(r => r.accepted_at !== undefined));
   if (DAYS !== 3 && !(isHot && HOTMODE === "all")) parts.push(`${DAYS}天`);
   if (isHot && HOTMODE === "all") parts.push("含回鍋");
-  if (isHot && SORT !== "time") parts.push(SORT === "rising" ? "正在起飛" : "總留言數");
+  if (isHot && SORT !== "time") {
+    parts.push(SORT === "rising" ? "正在起飛" : SORT === "posted" ? "依時間" : "總留言數");
+  }
   if (isHot && BOARD_EXCL.size) parts.push(`隱藏${BOARD_EXCL.size}板`);
   const btn = $("filter-btn");
   btn.textContent = (parts.length ? `篩選（${parts.join("・")}）` : "篩選") + (FILTER_OPEN ? " ▴" : " ▾");
@@ -428,10 +625,20 @@ function hotPostTs(r) {
   return d.getTime();
 }
 
-function dayOk(r, allTime = allTimeOn()) {
-  if (allTime) return true;
+/* 固定收錄的低流量板（女板/BG）：這些板的文要累積到過留言門檻常常已經 1-3 週，
+   但「討論度高」是現在才發生的（留言持續在累積）。用發文時間去擋等於永遠看不到，
+   熱門清單也會少掉這兩板的內容（Dino 2026-09-04：「不然熱門文章很無聊」）。
+   板名由 hot.json 的 always_boards 帶下來，不在前端寫死。 */
+function alwaysBoard(r) {
+  const d = DATA.hot;
+  const list = (d && d.always_boards) || [];
+  return !!r.board && list.includes(r.board);
+}
+
+function dayOk(r) {
   const isHot = r.accepted_at !== undefined;
   if (isHot && HOTMODE === "all") return true;
+  if (isHot && alwaysBoard(r)) return true;   // 固定收錄板豁免天數窗
   const basis = isHot ? hotPostTs(r) : (r.ts ? r.ts * 1000 : null);
   if (!DAYS || basis === null) return true;
   const midnight = new Date();
@@ -453,6 +660,7 @@ async function load(view) {
 function render() {
   const d = DATA[VIEW];
   if (!d) return;
+  renderCoffee();
   $("note").style.display = "flex";
   $("note-text").textContent = (d.note ? d.note + "｜" : "") + "更新於 " + d.updated_at;
   renderTabs(d);
@@ -463,23 +671,17 @@ function renderTabs(d) {
   const box = $("cat-tabs");
   box.innerHTML = "";
   const isHotData = d.results.some(r => r.accepted_at !== undefined);
-  // 「不限天數」自帶期間與排序語意，模式／天數兩個控制項在它底下沒有意義
-  $("mode-toggle").style.display = (isHotData && !allTimeOn()) ? "flex" : "none";
+  $("mode-toggle").style.display = isHotData ? "flex" : "none";
   document.querySelectorAll("#mode-toggle .tab").forEach(t =>
     t.classList.toggle("active", t.dataset.mode === HOTMODE));
   $("day-filter").style.display =
-    (d.results.some(r => r.ts) && !(isHotData && HOTMODE === "all") && !allTimeOn()) ? "flex" : "none";
+    (d.results.some(r => r.ts) && !(isHotData && HOTMODE === "all")) ? "flex" : "none";
   // 置頂項永遠顯示，計數也算進去
   const dayBase = d.results.filter(r => PINS.has(r.url) || dayOk(r));
   renderBoardFilter(dayBase);  // 看板 chips 含被隱藏的板（要留著讓使用者點回來）
   const base = dayBase.filter(r => PINS.has(r.url) || boardShown(r));
-  // 頁籤的數字必須等於「點下去之後會看到幾篇」。一般分類一律按天數窗口算、不限天數那顆按全集算，
-  // 才不會因為目前選中哪一顆而讓其他顆的數字跟著跳。
-  const catBase = d.results
-    .filter(r => PINS.has(r.url) || dayOk(r, false))
-    .filter(r => PINS.has(r.url) || boardShown(r));
-  const allTimeCount = d.results.filter(r => PINS.has(r.url) || boardShown(r)).length;
-  const hasCats = catBase.some(r => (r.cats || []).length) || base.some(r => (r.cats || []).length);
+  const catBase = base;
+  const hasCats = catBase.some(r => (r.cats || []).length);
   if (!hasCats) { box.style.display = "none"; return; }
   // 分類頁籤由結果自身推導：已知標籤照既定順序，其餘（熱門的看板主題）依篇數排
   const counts = {};
@@ -492,10 +694,8 @@ function renderTabs(d) {
   });
   names.unshift("全部");
   if (catBase.some(r => !(r.cats || []).length)) names.push("其他");
-  if (isHotData) names.splice(1, 0, CAT_ALL_TIME);  // 只有熱門有收錄制／回鍋的概念
   for (const n of names) {
-    const count = n === CAT_ALL_TIME ? allTimeCount
-      : n === "全部" ? catBase.length
+    const count = n === "全部" ? catBase.length
       : n === "其他" ? catBase.filter(r => !(r.cats || []).length).length
       : catBase.filter(r => (r.cats || []).includes(n)).length;
     const b = document.createElement("button");
@@ -513,19 +713,20 @@ function applyFilters(d) {
   // 置頂項不受天數/分類過濾影響永遠排最前；但文字搜尋要一起過
   const pinned = d.results.filter(r => PINS.has(r.url) && matchQ(r));
   let list = dayFiltered(d.results).filter(r => !PINS.has(r.url)).filter(boardShown);
-  // 不限天數是「範圍」不是標籤，沒有文章的 cats 會等於它——照一般分類去比對會濾成空清單
-  if (ACTIVE_CAT !== "全部" && !allTimeOn()) {
+  if (ACTIVE_CAT !== "全部") {
     list = ACTIVE_CAT === "其他"
       ? list.filter(r => !(r.cats || []).length)
       : list.filter(r => (r.cats || []).includes(ACTIVE_CAT));
   }
   list = list.filter(matchQ);
   const sortable = list.some(r => r.rising !== undefined);
-  // 不限天數固定依收錄時間新→舊，排序鈕在它底下沒有意義
-  $("sort-toggle").style.display = (sortable && !allTimeOn()) ? "flex" : "none";
+  $("sort-toggle").style.display = sortable ? "flex" : "none";
   if (sortable) {
-    const key = allTimeOn() ? (r => r.ts || 0)
-      : SORT === "comments" ? (r => r.comments || 0)
+    // 「最新熱門」= 收錄時間（moptt 式 feed 序）；「依時間」= 文章實際發表時間。
+    // 兩者不一樣：三週前的文今天才過留言門檻被收錄，在「最新熱門」會排很前面，
+    // 但在「依時間」會落到後面——想看真正的新文要用後者。
+    const key = SORT === "comments" ? (r => r.comments || 0)
+      : SORT === "posted" ? (r => hotPostTs(r) || 0)
       : SORT === "time" ? (r => r.ts || 0)
       : (r => r.rising || 0);
     list = [...list].sort((a, b) => key(b) - key(a));
@@ -615,6 +816,11 @@ function applyFilters(d) {
       }
       div.classList.add("open");
       btn.textContent = "收合";
+      // 卡片變成可見之後才量高度並決定要不要裁（隱藏時 scrollHeight 是 0）
+      if (pre._clip && !pre._clip.dataset.clipInit) {
+        pre._clip.dataset.clipInit = "1";
+        requestAnimationFrame(() => setupClip(pre._clip, pre));
+      }
     });
     actions.appendChild(btn);
     actions.appendChild(makePinBtn(r));
@@ -622,6 +828,216 @@ function applyFilters(d) {
     div.append(actions, pre);
     box.appendChild(div);
   }
+}
+
+/* ---------------- 咖啡情報置頂區塊 ----------------
+   資料來源 data/coffee.json（NOWnews 每週日的「本周咖啡優惠」專欄，Gemini 結構化）。
+   只在省錢頁顯示；沒有 coffee.json（還沒到週日、或抓取失敗）就整塊不出現，不留空殼。 */
+let COFFEE = undefined;          // undefined=還沒載、null=沒有資料
+
+function coffeeCollapsed() {
+  // 無記錄＝預設收合。第一次造訪時 54 筆優惠會整片擋在文章清單前面（Tor 2026-09-04）；
+  // 收合態仍保留標題／期間／通路捷徑，看得到有什麼、要看再展開。
+  try {
+    const v = localStorage.getItem("ptt_coffee_collapsed");
+    return v === null ? true : v === "1";
+  } catch (e) { return true; }
+}
+function setCoffeeCollapsed(v) {
+  try { localStorage.setItem("ptt_coffee_collapsed", v ? "1" : "0"); } catch (e) {}
+}
+
+async function loadCoffee() {
+  if (COFFEE !== undefined) return COFFEE;
+  try {
+    const r = await fetch("data/coffee.json", { cache: "no-store" });
+    COFFEE = r.ok ? await r.json() : null;
+  } catch (e) { COFFEE = null; }
+  return COFFEE;
+}
+
+/* 從各通路的期間文字裡撈出所有「M月D日」，取最早與最晚合成一個總範圍。
+   只在文章本身沒寫總期間時才用；撈不到日期就回空字串（寧可不顯示，也不要瞎猜）。 */
+function summarizeCoffeePeriod(channels) {
+  const dates = [];
+  for (const ch of channels) {
+    const re = /(\d{1,2})月(\d{1,2})日/g;
+    let m;
+    while ((m = re.exec(ch.期間 || ""))) dates.push([+m[1], +m[2]]);
+  }
+  if (!dates.length) return "";
+  const key = d => d[0] * 100 + d[1];
+  dates.sort((a, b) => key(a) - key(b));
+  const fmt = d => `${d[0]}/${d[1]}`;
+  const first = fmt(dates[0]), last = fmt(dates[dates.length - 1]);
+  return first === last ? first : `${first}～${last}`;
+}
+
+function renderCoffee() {
+  const box = $("coffee");
+  if (!box) return;
+  // 熱門頁不顯示；沒資料也不顯示（不要留一個空殼佔版面）
+  if (VIEW !== "money" || !COFFEE || !(COFFEE.通路 || []).length) {
+    box.hidden = true;
+    return;
+  }
+  const art = COFFEE.article || {};
+  box.hidden = false;
+  box.dataset.collapsed = coffeeCollapsed() ? "1" : "0";
+  box.textContent = "";
+
+  const head = document.createElement("div");
+  head.className = "coffee-head";
+  const h2 = document.createElement("h2");
+  h2.id = "coffee-h";
+  h2.textContent = "本週咖啡優惠";
+  const meta = document.createElement("span");
+  meta.className = "coffee-meta";
+  if (art.url) {
+    const a = document.createElement("a");
+    a.href = art.url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = art.source || "來源";
+    meta.append(document.createTextNode((COFFEE.updated_at || "") + "　"), a);
+  } else {
+    meta.textContent = COFFEE.updated_at || "";
+  }
+  const toggle = document.createElement("button");
+  toggle.className = "coffee-toggle";
+  toggle.type = "button";
+  toggle.setAttribute("aria-controls", "coffee-collapsible");
+  const syncToggle = () => {
+    const c = box.dataset.collapsed === "1";
+    toggle.textContent = c ? "展開" : "收合";
+    toggle.setAttribute("aria-expanded", c ? "false" : "true");
+  };
+  toggle.addEventListener("click", () => {
+    const c = box.dataset.collapsed === "1";
+    box.dataset.collapsed = c ? "0" : "1";
+    setCoffeeCollapsed(!c);
+    syncToggle();
+  });
+  syncToggle();
+  head.append(h2, meta, toggle);
+  box.appendChild(head);
+
+  // 有些文章沒有統一的總期間（每個通路各標各的），這時從各通路的期間合成一個範圍，
+  // 否則收合狀態下完全看不到日期——而「這波優惠到什麼時候」正是最該先看到的資訊。
+  const periodText = COFFEE.活動期間 || summarizeCoffeePeriod(COFFEE.通路 || []);
+  if (periodText) {
+    const period = document.createElement("div");
+    period.className = "coffee-period";
+    period.textContent = "活動期間：" + periodText;
+    box.appendChild(period);
+  }
+
+  // 同一個通路在文章裡可能拆成多段（不同期間），這裡按名稱合併成一個捷徑
+  const channels = COFFEE.通路 || [];
+  const order = [];
+  const grouped = new Map();
+  channels.forEach((ch, i) => {
+    const name = (ch.名稱 || "其他").trim();
+    if (!grouped.has(name)) { grouped.set(name, []); order.push(name); }
+    grouped.get(name).push(ch);
+  });
+
+  const jumpWrap = document.createElement("div");
+  jumpWrap.className = "coffee-jump-wrap";
+  const jump = document.createElement("div");
+  jump.className = "coffee-jump";
+  jump.setAttribute("role", "group");
+  jump.setAttribute("aria-label", "通路捷徑");
+  order.forEach((name, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    const n = grouped.get(name).reduce((s, c) => s + (c.優惠 || []).length, 0);
+    b.textContent = `${name}${n ? " " + n : ""}`;
+    b.title = `跳到 ${name} 的優惠`;
+    b.addEventListener("click", () => {
+      // 收合狀態下捷徑仍看得到，點了要先展開，不然會捲到一個被藏起來的區段
+      if (box.dataset.collapsed === "1") {
+        box.dataset.collapsed = "0";
+        setCoffeeCollapsed(false);
+        syncToggle();
+      }
+      const t = document.getElementById("coffee-ch-" + i);
+      if (!t) return;
+      t.scrollIntoView({ behavior: "smooth", block: "center" });
+      t.classList.remove("flash");
+      void t.offsetWidth;                 // 重新觸發動畫
+      t.classList.add("flash");
+    });
+    jump.appendChild(b);
+  });
+  jumpWrap.appendChild(jump);
+  box.appendChild(jumpWrap);
+
+  const collapsible = document.createElement("div");
+  collapsible.id = "coffee-collapsible";
+  const body = document.createElement("div");
+  body.className = "coffee-body";
+  order.forEach((name, i) => {
+    const sec = document.createElement("div");
+    sec.className = "coffee-ch";
+    sec.id = "coffee-ch-" + i;
+    const h3 = document.createElement("h3");
+    h3.appendChild(document.createTextNode(name));
+    // 期間已經下放到各「管道」小區塊，這裡只標這家有幾種取得管道
+    const ways = [...new Set(grouped.get(name)
+      .map(c => (c.管道 || "").trim()).filter(Boolean))];
+    if (ways.length) {
+      const sp = document.createElement("span");
+      sp.className = "ch-period";
+      sp.textContent = ways.join("／");
+      h3.appendChild(sp);
+    }
+    sec.appendChild(h3);
+    grouped.get(name).forEach(ch => {
+      // 每個「管道 × 期間」自成一小塊。合併成一行會讓使用者不知道哪個價格
+      // 要去門市、哪個要開 APP、哪個要走 LINE 禮物。
+      const blk = document.createElement("div");
+      blk.className = "coffee-block";
+      const way = (ch.管道 || "").trim();
+      const when = (ch.期間 || "").trim();
+      if (way || when) {
+        const bh = document.createElement("div");
+        bh.className = "blk-head";
+        if (way) {
+          const w = document.createElement("span");
+          w.className = "blk-way";
+          w.textContent = way;
+          bh.appendChild(w);
+        }
+        if (when) bh.appendChild(document.createTextNode(when));
+        blk.appendChild(bh);
+      }
+      sec.appendChild(blk);
+      (ch.優惠 || []).forEach(d => {
+        const row = document.createElement("div");
+        row.className = "coffee-deal";
+        const item = document.createElement("span");
+        item.className = "d-item";
+        item.textContent = d.品項 || "";
+        row.appendChild(item);
+        if (d.說明) {
+          const rule = document.createElement("span");
+          rule.className = "d-rule";
+          rule.textContent = d.說明;
+          row.appendChild(rule);
+        }
+        if (d.原價 || d.優惠價) {
+          const price = document.createElement("span");
+          price.className = "d-price";
+          if (d.原價) { const s0 = document.createElement("s"); s0.textContent = d.原價; price.appendChild(s0); }
+          if (d.優惠價) price.appendChild(document.createTextNode((d.原價 ? " → " : "") + d.優惠價));
+          row.appendChild(price);
+        }
+        blk.appendChild(row);
+      });
+    });
+    body.appendChild(sec);
+  });
+  collapsible.appendChild(body);
+  box.appendChild(collapsible);
 }
 
 /* ---------------- 全文閱讀器：內文（含圖片）＋留言（含樓層） ---------------- */
@@ -654,21 +1070,86 @@ function renderLine(parent, line) {
   parent.appendChild(div);
 }
 
+/* 漸進展開：長文先裁到 CLIP_FIRST，之後每按一次多放 CLIP_STEP。
+   不用內捲框——手機上兩個捲軸會互搶（2026-09-04 實測內容 4075px 塞進 608px）。 */
+let CLIP_SEQ = 0;
+const CLIP_FIRST = 520;
+const CLIP_STEP = 900;
+
+function setupClip(clip, container) {
+  const full = () => clip.scrollHeight;
+  if (full() <= CLIP_FIRST + 80) return;      // 本來就不長，不必裁
+
+  let shown = CLIP_FIRST;
+  // 步長隨全文長度放大，否則上萬 px 的長文要點十幾次（Tor 2026-09-04）
+  const step = Math.max(CLIP_STEP, Math.round(full() * 0.25));
+  clip.style.maxHeight = shown + "px";
+  clip.dataset.clipped = "1";
+  if (!clip.id) clip.id = "art-clip-" + (++CLIP_SEQ);
+
+  const more = document.createElement("button");
+  more.className = "art-more";
+  more.type = "button";
+
+  const label = () => {
+    const left = Math.max(0, full() - shown);
+    // 用「還剩幾成」而不是像素——像素對讀的人沒有意義
+    const pct = Math.round(left / full() * 100);
+    // 這個 clip 同時包內文與留言，百分比是兩者合計——文案要講清楚，不然會誤導
+    more.textContent = left > step
+      ? `展開更多內容（含留言，還有約 ${pct}%）`
+      : "展開剩下的全部";
+    more.setAttribute("aria-controls", clip.id);
+  };
+  const finish = () => {
+    clip.style.maxHeight = "";
+    delete clip.dataset.clipped;
+    // 鍵盤使用者的焦點正停在這顆按鈕上，直接 remove 會讓焦點掉回 <body>、
+    // 位置整個弄丟。先把焦點交給留言標題（沒有就交給 clip 本身）再移除。
+    const land = clip.querySelector(".art-comments-head") || clip;
+    const active = document.activeElement === more;
+    more.remove();
+    if (active) {
+      land.setAttribute("tabindex", "-1");
+      land.focus({ preventScroll: true });
+    }
+  };
+  more.addEventListener("click", () => {
+    shown += step;
+    if (shown >= full()) { finish(); return; }
+    clip.style.maxHeight = shown + "px";
+    label();
+  });
+  label();
+  container.appendChild(more);
+
+  // 圖片是後載的，載完高度會變，重算一次按鈕文案；若圖載完其實已經全露出就收掉按鈕
+  clip.querySelectorAll("img").forEach(img => {
+    if (img.complete) return;
+    img.addEventListener("load", () => {
+      if (!clip.dataset.clipped) return;
+      if (shown >= full()) finish(); else label();
+    }, { once: true });
+  });
+}
+
 function fillArticle(container, art) {
   container.textContent = "";
-  container.setAttribute("tabindex", "0");  // 內捲區鍵盤可聚焦捲動（Tor a11y 遺留項）
-  container.setAttribute("role", "region");
-  container.setAttribute("aria-label", "文章全文與留言");
+  container.removeAttribute("tabindex");   // 不再是內捲區，不需要可聚焦捲動
+  container.removeAttribute("role");
+  const clip = document.createElement("div");
+  clip.className = "art-clip";
   const body = document.createElement("div");
   body.className = "art-body";
   for (const line of (art.body || "").split("\n")) renderLine(body, line);
-  container.appendChild(body);
+  clip.appendChild(body);
+  container.appendChild(clip);
   const comments = art.comments || [];
   if (comments.length) {
     const head = document.createElement("div");
     head.className = "art-comments-head";
     head.textContent = `留言（${comments.length}）`;
-    container.appendChild(head);
+    clip.appendChild(head);
     comments.forEach((c, i) => {
       const row = document.createElement("div");
       row.className = "cmt";
@@ -688,9 +1169,12 @@ function fillArticle(container, art) {
       time.className = "cmt-time";
       time.textContent = c.time || "";
       row.append(floor, tag, user, content, time);
-      container.appendChild(row);
+      clip.appendChild(row);
     });
   }
+  // ⚠️ 不要在這裡呼叫 setupClip：此刻 .preview 還是 display:none，
+  // scrollHeight 量到 0，會誤判成「不夠長、不用裁」。交給展開之後再量。
+  container._clip = clip;
 }
 
 function makePinBtn(r) {
@@ -889,6 +1373,8 @@ document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", a
       : "資料載入失敗，請稍後重新整理再試";
   }
   load("hot").catch(() => {});  // 預先抓熱門資料
+  // 咖啡情報獨立載入：抓不到就整塊不出現，不能拖累主資料的顯示
+  loadCoffee().then(renderCoffee).catch(() => {});
 })();
 </script>
 </body>

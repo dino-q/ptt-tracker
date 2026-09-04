@@ -12,7 +12,7 @@
 用法：
     python scripts/preview_site.py              # 缺資料才抓，然後開瀏覽器
     python scripts/preview_site.py --refresh    # 強制重抓線上資料
-    python scripts/preview_site.py --port 8891
+    python scripts/preview_site.py --port 8879
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def fetch_live_data(refresh: bool) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8891)
+    ap.add_argument("--port", type=int, default=8879)
     ap.add_argument("--refresh", action="store_true", help="強制重抓線上 JSON")
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
@@ -64,8 +64,38 @@ def main() -> int:
     print("準備線上版預覽資料：")
     fetch_live_data(args.refresh)
 
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler,
-                                directory=str(SITE))
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        """本機沒有的檔案就代理到線上版。
+
+        為什麼要這樣（2026-09-04 踩到）：`site/data/articles/*.json` 是產物，
+        本機幾乎是空的。少了它，前端會走「抓不到全文」的退路顯示純摘要，
+        `fillArticle` 根本不會執行——驗收就會在驗一個沒被觸發的程式路徑，
+        看起來過了其實什麼都沒測到。代理之後本機預覽才等於線上行為。
+        """
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=str(SITE), **kw)
+
+        def do_GET(self):                                  # noqa: N802
+            rel = self.path.split("?", 1)[0].lstrip("/")
+            local = SITE / rel
+            if rel and not local.exists():
+                try:
+                    with urllib.request.urlopen(f"{LIVE_BASE.rsplit('/', 1)[0]}/{rel}",
+                                                timeout=20) as resp:
+                        body = resp.read()
+                        ctype = resp.headers.get("Content-Type", "application/octet-stream")
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                except Exception:                          # noqa: BLE001
+                    pass          # 線上也沒有就照原本的流程回 404
+            super().do_GET()
+
+    handler = Handler
     socketserver.TCPServer.allow_reuse_address = True
     try:
         httpd = socketserver.TCPServer(("127.0.0.1", args.port), handler)
