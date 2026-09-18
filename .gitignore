@@ -10,4 +10,6 @@ tracks.json.bak
 *.json.tmp
 tests/screenshots/
 config.json
+# 金鑰：本機用 .env 供 GEMINI_API_KEY（Actions 用 secret）。repo 是公開的，絕不能上傳
+.env
 # site/data/ 2026-09-18 起要進 git（本機產資料、GitHub 只負責部署），不再 ignore

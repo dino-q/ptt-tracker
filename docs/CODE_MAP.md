@@ -130,6 +130,12 @@
 
 ## gemini_client.py（🆕 2026-09-04，Gemini 呼叫層）
 
+**金鑰來源（2026-09-18 起兩種都吃）**：環境變數優先，沒有才讀專案根目錄 `.env`（`_load_env_file()`，只補不覆蓋）。
+本機丟 `.env` 就會生效，跟其他專案慣例一致；GitHub Actions 走 repo secret，不受影響。
+`.env` 已進 `.gitignore`（repo 公開，絕不能上傳），格式看 `.env.example`。
+🆕 不沿用的原因：這支原本只讀環境變數（當初只給 Actions 用），專案內沒有任何讀 `.env` 的實作；
+不引入 python-dotenv 是因為 Actions 也會執行這支，多一個依賴多一分裝不起來的風險。
+
 | 名稱 | 用途 | 備註 |
 |---|---|---|
 | `available()` | 有金鑰且裝得起 SDK 才回 True | 呼叫端拿它決定要不要進入整段流程 |

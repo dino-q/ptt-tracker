@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from pathlib import Path
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 FALLBACK_MODEL = os.environ.get("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash")
@@ -51,7 +52,45 @@ _throttle_lock = threading.Lock()
 _last_call_at = 0.0
 
 
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
+_env_loaded = False
+
+
+def _load_env_file() -> None:
+    """把專案根目錄 `.env` 的內容補進環境變數（只補、不覆蓋既有值）。
+
+    🆕 2026-09-18 新寫，不沿用的原因：這支原本只讀環境變數——它當初是為
+    GitHub Actions 寫的，金鑰由 secret 注入。2026-09-18 抓取搬回本機後，
+    本機也要拿得到金鑰，而其他專案的慣例是丟 `.env` 進專案資料夾就好
+    （Dino：「不是放在專案內，程式碼就會自己讀取了嗎」）。這裡照那個慣例補上。
+    不引入 python-dotenv：Actions 也會執行這支，多一個依賴多一分裝不起來的風險，
+    而我們只需要 `KEY=VALUE` 這一種格式。
+
+    已存在的環境變數優先（Actions 的 secret 不會被本機檔案蓋掉）。
+    """
+    global _env_loaded
+    if _env_loaded:
+        return
+    _env_loaded = True
+    try:
+        for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except FileNotFoundError:
+        pass
+    except Exception:                                         # noqa: BLE001
+        # .env 壞掉不該讓整個掃描停擺：沒讀到就當沒金鑰，呼叫端會自己略過
+        pass
+
+
 def api_key() -> str:
+    _load_env_file()
     return (os.environ.get("GEMINI_API_KEY")
             or os.environ.get("GOOGLE_API_KEY") or "").strip()
 
