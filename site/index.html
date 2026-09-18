@@ -399,7 +399,7 @@
   <div class="results-toolbar">
     <div id="note" class="note" style="display:none">
       <span id="note-text"></span>
-      <button id="refresh-btn" type="button" title="立刻觸發雲端重新爬取，完成後自動重新載入">立即更新</button>
+      <button id="refresh-btn" type="button" title="2026-09-18 起雲端已不再爬 PTT（機房 IP 被 403 封鎖），資料由本機每日推送。這顆鈕只會叫雲端重新部署同一份資料，不會有新文章">重新部署</button>
     </div>
     <div class="filter-groups">
       <div class="tabs" id="cat-tabs" style="display:none"></div>
@@ -1300,7 +1300,8 @@ $("filter-btn").addEventListener("click", () => {
   updateFilterBtn();
 });
 
-// —— 立即更新：觸發 GitHub Actions workflow_dispatch，完成後自動重新載入 ——
+// —— 重新部署：觸發 GitHub Actions workflow_dispatch，完成後自動重新載入 ——
+// （2026-09-18 起 workflow 只做 Pages 部署，不再爬 PTT，所以不會有新文章）
 // token 只存這台裝置的 localStorage，絕不寫進程式碼或送往 api.github.com 以外的任何地方
 const GH = { owner: "dino-q", repo: "ptt-tracker", workflow: "update.yml", branch: "master" };
 function ghToken() { try { return localStorage.getItem("ptt_gh_token") || ""; } catch (e) { return ""; } }
@@ -1309,6 +1310,11 @@ function dropToken() { try { localStorage.removeItem("ptt_gh_token"); } catch (e
 // 公開頁不對路人亮「請貼 token」：沒設過 token 的裝置預設隱藏按鈕，網址加 #admin 才現身（首次設定用）。
 // sticky：本次瀏覽只要現身過就不再縮回——token 失效被清除後，「再按一次重新設定」的出路必須還在
 let SHOW_REFRESH = false;
+// ⚠️ 2026-09-18 起這顆鈕不再會抓到新資料：PTT 封鎖了 GitHub Actions 的機房 IP（403），
+// 抓取搬回本機排程（scripts/publish_local.py 每日產資料後 push），雲端只剩部署。
+// 按下去＝叫雲端把同一份資料重新部署一次，不會有新文章。維持原本「路人看不到、
+// 只有 #admin 或存過 token 的裝置才出現」的設計，文案已改成誠實說明；PTT 解封後
+// 只要把 update.yml 的爬取步驟加回去，這顆鈕就自動恢復原本功能。
 function syncRefreshVisibility() {
   if (ghToken() || location.hash === "#admin") SHOW_REFRESH = true;
   $("refresh-btn").style.display = SHOW_REFRESH ? "" : "none";
@@ -1317,7 +1323,7 @@ window.addEventListener("hashchange", syncRefreshVisibility);
 
 function setupToken() {
   const t = window.prompt(
-    "第一次使用「立即更新」需要一把 GitHub token（只存在這台裝置的瀏覽器）。\n\n" +
+    "第一次使用「重新部署」需要一把 GitHub token（只存在這台裝置的瀏覽器）。\n\n" +
     "建立步驟（一次就好）：\n" +
     "1. 登入 GitHub 後開 github.com/settings/personal-access-tokens/new\n" +
     "2. Repository access 選 Only select repositories → ptt-tracker\n" +
@@ -1343,7 +1349,7 @@ async function triggerRefresh() {
   if (!token) token = setupToken();
   if (!token) return;
   const done = (msg) => {
-    btn.disabled = false; btn.textContent = "立即更新"; syncRefreshVisibility();
+    btn.disabled = false; btn.textContent = "重新部署"; syncRefreshVisibility();
     if (msg) alert(msg);
   };
   btn.disabled = true;
@@ -1365,7 +1371,7 @@ async function triggerRefresh() {
       });
     if (r.status === 401 || r.status === 403 || r.status === 404) {
       dropToken();
-      throw new Error("token 無效或權限不足（需要 ptt-tracker 的 Actions 讀寫），已清除；再按一次「立即更新」重新設定即可");
+      throw new Error("token 無效或權限不足（需要 ptt-tracker 的 Actions 讀寫），已清除；再按一次「重新部署」重新設定即可");
     }
     if (r.status !== 204) throw new Error("GitHub 回應 HTTP " + r.status);
   } catch (e) {
@@ -1429,11 +1435,9 @@ document.querySelectorAll(".viewbtn").forEach(b => b.addEventListener("click", a
   try { await load("money"); render(); }
   catch (e) {
     $("items").innerHTML = `<p class="error">載入失敗：${e.message}</p>`;
-    // 資料壞掉時「立即更新」反而最需要出現：note 橫幅照樣顯示；文案跟著按鈕可見性走，不叫人按看不到的鈕
     $("note").style.display = "flex";
-    $("note-text").textContent = SHOW_REFRESH
-      ? "資料載入失敗，可按「立即更新」重新產生"
-      : "資料載入失敗，請稍後重新整理再試";
+    // 資料由本機每日推送，訪客這邊沒有可按的補救鈕，只能請他稍後再看
+    $("note-text").textContent = "資料載入失敗，請稍後重新整理再試";
   }
   load("hot").catch(() => {});  // 預先抓熱門資料
   // 咖啡情報獨立載入：抓不到就整塊不出現，不能拖累主資料的顯示

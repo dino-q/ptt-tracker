@@ -1,11 +1,19 @@
 name: update-site
 
+# 2026-09-18 Dino 拍板：這個 workflow 不再爬 PTT，只負責把 repo 裡的 site/ 部署到 Pages。
+# 原因：PTT 自 2026-09-16 18:50 UTC 起對 GitHub Actions 的機房 IP 回 403 Forbidden
+# （同時段同一支程式從本機出去是 200），連續 7 次全掛，且封鎖認的是來源 IP 段，
+# 改寫程式、換 Cloudflare 都繞不過。抓取改由本機排程 PTT_Assistant_DailyCache 執行
+# （scripts/publish_local.py 產 site/data 後 push），這裡只做部署——部署不連 PTT，不受影響。
+# 所以也移除了 schedule：資料是 push 進來的，push 即部署。
+
 on:
-  schedule:
-    - cron: "7 0-15 * * *"   # UTC 0-15 點每小時＝台灣時間 08:07～23:07 每小時，深夜停跑
-  workflow_dispatch:
   push:
     branches: [master]
+    paths:
+      - "site/**"
+      - ".github/workflows/update.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,24 +25,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - name: 爬 PTT 產生資料
-        run: python scripts/build_site.py
-        env:
-          # 咖啡情報的結構化擷取＋省錢文章的圖片辨識都吃這把金鑰。
-          # 沒設也不會壞：兩者都會安靜跳過，其餘資料照常產生。
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

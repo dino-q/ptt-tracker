@@ -77,6 +77,11 @@
 ## 線上版（GitHub Pages，詳見 GIT_PUBLISH.md）
 
 - `scripts/build_site.py`：♻️ 調用 server.py 的 run_task/run_hot 產 `site/data/*.json`（Actions 與本機都能跑）。
+- 🆕 `scripts/publish_local.py`（2026-09-18）：**本機每日工作的單一入口**＝♻️ `server.refresh_auto_tracks(force=True)`（本機快取）＋♻️ `build_site.main()`（線上資料）＋🆕 `publish_site_data()`（`git add/commit/push` site/data）。
+  - 為何新寫而不沿用：原本沒有任何「產完資料就推上 git」的東西（雲端版是 Actions 用 artifact 部署，資料不進 git）。抓取搬回本機後才需要這一段；抓取與產資料兩段全部沿用，沒有重寫。
+  - 沒有變動就不 commit；push 失敗時 commit 留在本機，下次排程會一起推，不會掉資料。
+  - 稽核：一律看 `data/refresh.log`（♻️ 沿用 `_refresh_log`），標籤為「線上資料」「線上發佈」。
+  - ⚠️ 本機沒有 `GEMINI_API_KEY` 環境變數時，咖啡情報結構化與圖片辨識會**安靜跳過**（其餘資料照產）。金鑰只存在 GitHub secret，本機要另外設。
 - `site/index.html`：唯讀靜態頁（省錢優惠＋熱門文章），部署在 https://dino-q.github.io/ptt-tracker/
   - 🆕 `triggerRefresh()`（2026-08-23）：「立即更新」鈕＝瀏覽器直呼 GitHub API workflow_dispatch → 輪詢 run 完成 → 偵測 money.json updated_at 變化 → 自動 reload；PAT 存 localStorage `ptt_gh_token`（僅該裝置），401/403 自動清除重導設定。測試：tests/verify_refresh.py（mock GitHub API 三情境）
   - ❌ ~~`CAT_ALL_TIME`「不限天數」分類~~（2026-09-04 加、同日移除）：它跟篩選面板的
@@ -230,4 +235,5 @@
 
 ## 排程
 
-- `PTT_Assistant_DailyCache`：每日 08:30 `pythonw server.py --refresh-only` 更新 auto 追蹤項快取（電池模式也跑）。詳見 `路徑相依_搬移前必讀.md`。
+- `PTT_Assistant_DailyCache`：每日 08:30 `pythonw scripts/publish_local.py`（電池模式也跑、**錯過會補跑** StartWhenAvailable）＝本機快取＋線上資料＋push 三件一起做。詳見 `路徑相依_搬移前必讀.md`。
+  - ⚠️ 2026-09-18 前這個排程跑的是 `server.py --refresh-only`（只更新本機快取）；改成 `publish_local.py` 是因為線上版的抓取從 Actions 搬回本機（PTT 封鎖 Actions 機房 IP）。`--refresh-only` 參數本身保留，手動只想更新本機快取時還能用。

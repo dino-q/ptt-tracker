@@ -2,10 +2,12 @@
 __pycache__/
 *.pyc
 output/
-data/
+# 只擋根目錄的本機快取。不能寫成 data/：那會連 site/data/ 一起擋掉（2026-09-18 踩過）
+# 也不能在 pattern 後面接註解，gitignore 不支援行尾註解，整行會被當成路徑
+/data/
 tracks.json
 tracks.json.bak
 *.json.tmp
 tests/screenshots/
 config.json
-site/data/
+# site/data/ 2026-09-18 起要進 git（本機產資料、GitHub 只負責部署），不再 ignore

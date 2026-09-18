@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-線上版「立即更新」鈕驗收（純靜態 site/ ＋ mock GitHub API，不打真 GitHub）。
+線上版「重新部署」鈕驗收（純靜態 site/ ＋ mock GitHub API，不打真 GitHub）。
+（2026-09-18 鈕名由「立即更新」改為「重新部署」：PTT 封鎖 Actions 機房 IP 後雲端
+ 不再爬 PTT，抓取搬回本機；這顆鈕只會重新部署同一份資料，文案不能再說「更新」。）
 ①路人看不到鈕、#admin 現身且取消設定零 API 呼叫
 ②成功流程：dispatch(帶token)→輪詢(帶token、workflow 專屬 runs)→資料換新→自動 reload
 ③dispatch 401→清 token 提示重設
@@ -74,14 +76,14 @@ def main() -> None:
         page.on("dialog", lambda d: (dialogs.append((d.type, d.message)), d.dismiss()))
         page.goto(BASE)
         page.wait_for_selector("#note-text")
-        assert not page.locator("#refresh-btn").is_visible(), "路人不應看到立即更新鈕"
+        assert not page.locator("#refresh-btn").is_visible(), "路人不應看到重新部署鈕"
         page.goto(BASE + "#admin")
         page.wait_for_selector("#refresh-btn", state="visible")
         page.click("#refresh-btn")
         page.wait_for_timeout(400)
         assert dialogs and dialogs[0][0] == "prompt" and "personal-access-tokens" in dialogs[0][1], dialogs
         assert not api_calls, f"取消設定不應呼叫 API：{api_calls}"
-        assert page.locator("#refresh-btn").inner_text() == "立即更新"
+        assert page.locator("#refresh-btn").inner_text() == "重新部署"
         print("PASS ① 路人隱藏鈕／#admin 現身／取消零 API")
         ctx.close()
 
@@ -108,7 +110,7 @@ def main() -> None:
         assert state["dispatch_auth"] == "Bearer test-token-abc", state["dispatch_auth"]
         assert state["runs_auth"] == "Bearer test-token-abc", f"runs 輪詢必須帶 token：{state.get('runs_auth')}"
         assert all(RUNS_MARK in u for u in state["runs_urls"]), state["runs_urls"]
-        assert page.locator("#refresh-btn").inner_text() == "立即更新"
+        assert page.locator("#refresh-btn").inner_text() == "重新部署"
         print("PASS ② 成功流程：帶 token 輪詢 workflow 專屬 runs→換新→reload")
         ctx.close()
 
@@ -139,7 +141,7 @@ def main() -> None:
         page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
         page.goto(BASE)
         page.click("#refresh-btn")
-        page.wait_for_function("document.getElementById('refresh-btn').textContent === '立即更新'", timeout=5_000)
+        page.wait_for_function("document.getElementById('refresh-btn').textContent === '重新部署'", timeout=5_000)
         assert alerts and "限流" in alerts[0] and "403" in alerts[0], alerts
         assert page.locator("#refresh-btn").is_enabled()
         print("PASS ④ 輪詢 403：立即跳出、限流訊息、按鈕復原")
@@ -154,7 +156,7 @@ def main() -> None:
         page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
         page.goto(BASE)
         page.click("#refresh-btn")
-        page.wait_for_function("document.getElementById('refresh-btn').textContent === '立即更新'", timeout=5_000)
+        page.wait_for_function("document.getElementById('refresh-btn').textContent === '重新部署'", timeout=5_000)
         assert alerts and "雲端更新失敗" in alerts[0] and "failure" in alerts[0], alerts
         print("PASS ⑤ run 失敗：如實提示、不 reload")
         ctx.close()
@@ -170,7 +172,7 @@ def main() -> None:
         reloads = {"n": 0}
         page.on("framenavigated", lambda f: reloads.__setitem__("n", reloads["n"] + 1) if f == page.main_frame else None)
         page.click("#refresh-btn")
-        page.wait_for_function("document.getElementById('refresh-btn').textContent === '立即更新'", timeout=15_000)
+        page.wait_for_function("document.getElementById('refresh-btn').textContent === '重新部署'", timeout=15_000)
         assert alerts and "還沒看到新資料" in alerts[-1], alerts
         assert reloads["n"] == 0, f"資料沒變不得 reload（發生 {reloads['n']} 次導航）"
         print("PASS ⑥ 資料未變：不 reload、超時如實提示")
@@ -195,7 +197,7 @@ def main() -> None:
         page.goto(BASE)
         page.wait_for_selector("#note-text")
         note = page.locator("#note-text").inner_text()
-        assert "資料載入失敗" in note and "立即更新" not in note, note
+        assert "資料載入失敗" in note and "重新部署" not in note, note
         assert not page.locator("#refresh-btn").is_visible()
         print("PASS ⑧ 無 token＋載入失敗：文案不提按鈕、按鈕維持隱藏")
         ctx.close()
@@ -209,7 +211,7 @@ def main() -> None:
         page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
         page.goto(BASE)
         page.click("#refresh-btn")
-        page.wait_for_function("document.getElementById('refresh-btn').textContent === '立即更新'", timeout=5_000)
+        page.wait_for_function("document.getElementById('refresh-btn').textContent === '重新部署'", timeout=5_000)
         assert alerts and "token 已失效" in alerts[0], alerts
         assert page.evaluate("localStorage.getItem('ptt_gh_token')") is None
         assert page.locator("#refresh-btn").is_visible() and page.locator("#refresh-btn").is_enabled()
