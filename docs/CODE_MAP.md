@@ -173,7 +173,8 @@
 | 名稱 | 用途 | 備註 |
 |---|---|---|
 | `scripts/coffee_news.py` | 抓 NOWnews「本周咖啡優惠」週更專欄 → 結構化成 `site/data/coffee.json` | 🆕 新寫（不沿用 `run_task` 的原因：那是 PTT 掃描引擎，來源、解析、輸出格式全都不同） |
-| `coffee_news.find_latest()` | 兩個來源合併挑最新一篇 | ⚠️ **不要改回用 nownews 站內搜尋**：`/search?q=` 對程式化存取是壞的，2026-09-04 實測連只搜「咖啡」都回「查無符合資料」 |
+| `coffee_news.find_latest()` | 官方 RSS、生活分類與咖啡標籤合併挑最新一篇 | ⚠️ **不要改回用 nownews 站內搜尋**：`/search?q=` 對程式化存取是壞的，2026-09-04 實測連只搜「咖啡」都回「查無符合資料」 |
+| `coffee_news._from_tags()` | 🆕 讀「咖啡優惠」「超商咖啡優惠」官方標籤，處理網址／標題內換行及 HTML 實體；各來源失敗獨立記錄 | 不沿用 `_from_category` 的原因：標籤以 `aria-label` 放標題，`href` 含換行，分類頁的規則無法解析。♻️ 沿用 `_get`、`_refresh_log`；2026-10-24 修復咖啡資料停在 10/12。`build` 不以較舊文章覆蓋新版；排程結果記在 `data/refresh.log`。 |
 | `coffee_news.extract()` | 丟 Gemini 做結構化（通路／品項／原價／優惠價／期間） | ♻️ 沿用 `gemini_client.generate`（金鑰／重試／備援模型）。原本這裡自帶一份同樣的重試迴圈，2026-09-04 圖片辨識也要用時抽出去共用 |
 | `site/index.html:renderCoffee()` | 置頂區塊：通路捷徑 chips ＋ 依通路分組的優惠列 ＋ 可收合（狀態存 localStorage） | 只在省錢頁顯示；沒有 coffee.json 就整塊不出現，不留空殼 |
 

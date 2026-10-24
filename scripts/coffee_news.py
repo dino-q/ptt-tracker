@@ -5,10 +5,12 @@
 為什麼不用 Dino 給的那個搜尋網址（2026-09-04 實測）：
     https://www.nownews.com/search?q=本周咖啡優惠！ 對程式化存取是**壞的**——
     用真瀏覽器、擋掉廣告、正常 UA 都一樣回「查無符合資料」，連只搜「咖啡」兩字也是。
-    改走兩個純 HTTP 的入口（都不需要瀏覽器）：
+    改走純 HTTP 的官方入口（都不需要瀏覽器）：
       ① NOWnews 官方 RSS：真實網址、真實時間，但只有最新 20 筆（全站混合）
       ② 生活分類頁 /cat/life/：伺服器端渲染，18 篇，補 RSS 被洗掉的漏
     Google News RSS 雖然找得到，但 <link> 是 JS 轉址頁、解不出真實網址，所以不用。
+    2026-10-24 補上「咖啡優惠」「超商咖啡優惠」標籤：首頁只有短暫的最新文章，
+    每日掃描會漏掉已被洗出的咖啡新聞；標籤保留同類文章，仍只收 NOWnews。
 
 收錄範圍（2026-09-04 Dino 定）：
     **只收 NOWnews**（上面兩個來源本來就都是 NOWnews，加別的來源前要先問過），
@@ -31,6 +33,7 @@ import xml.etree.ElementTree as ET
 
 # ♻️ 沿用共用的 Gemini 呼叫層（金鑰／重試／備援模型）
 import gemini_client
+from server import _refresh_log
 from datetime import datetime, timezone, timedelta
 
 TAIPEI = timezone(timedelta(hours=8))
@@ -38,6 +41,10 @@ UA = "Mozilla/5.0 (compatible; PTT-Assistant/1.0; +https://dino-q.github.io/ptt-
 
 NOWNEWS_RSS = "https://feed.nownews.com/rss/7d948070-66ea-11f0-a670-0bb14ef7a283"
 NOWNEWS_LIFE = "https://www.nownews.com/cat/life/"
+NOWNEWS_COFFEE_TAGS = (
+    "https://www.nownews.com/tag?q=%E5%92%96%E5%95%A1%E5%84%AA%E6%83%A0",
+    "https://www.nownews.com/tag?q=%E8%B6%85%E5%95%86%E5%92%96%E5%95%A1%E5%84%AA%E6%83%A0",
+)
 ARTICLE_RE = re.compile(r"https://www\.nownews\.com/news/(\d+)")
 
 #: 收錄條件：標題要同時命中「咖啡」與「優惠字樣」。
@@ -154,10 +161,33 @@ def _from_category() -> list[dict]:
     return out
 
 
+def _from_tags() -> list[dict]:
+    """咖啡專屬標籤保留舊文章，避免每日一次的掃描漏掉短暫出現在首頁的新聞。"""
+    out = []
+    for url in NOWNEWS_COFFEE_TAGS:
+        try:
+            page = _get(url).decode("utf-8", "ignore")
+        except Exception as exc:                              # noqa: BLE001
+            _refresh_log(f"咖啡情報 -> 標籤讀取失敗（{url}；{type(exc).__name__}: {exc}）")
+            continue
+        # 標籤頁的 href 與 aria-label 會含換行，不能沿用分類頁的內文規則。
+        items = []
+        for anchor in re.findall(r'<a\b[^>]*>', page, re.I):
+            href = re.search(r'\bhref=[\"\']([^\"\']+)[\"\']', anchor, re.I)
+            label = re.search(r'\baria-label=[\"\']([^\"\']+)[\"\']', anchor, re.I)
+            if href and label and ARTICLE_RE.fullmatch(href.group(1).strip()):
+                items.append({"title": html.unescape(label.group(1)).strip(),
+                              "url": href.group(1).strip(), "published": ""})
+        if not items:
+            _refresh_log(f"咖啡情報 -> 標籤沒有可解析文章（{url}）")
+        out.extend(items)
+    return out
+
+
 def find_latest() -> dict | None:
-    """兩個來源合併，挑出最新一篇「本周咖啡優惠」。"""
+    """合併官方 RSS、生活分類與咖啡標籤，挑出最新咖啡優惠。"""
     seen, merged = set(), []
-    for item in _from_rss() + _from_category():
+    for item in _from_rss() + _from_category() + _from_tags():
         if item["url"] in seen:
             continue
         seen.add(item["url"])
@@ -215,12 +245,15 @@ def build(previous: dict | None = None) -> dict | None:
     """回傳可直接寫成 coffee.json 的內容；抓不到新的就沿用舊的。"""
     latest = find_latest()
     if not latest:
+        _refresh_log("咖啡情報 -> 沒找到優惠文章，保留上一版；請檢查來源")
         if previous:
             print("咖啡情報：這輪沒找到新文章，沿用上一版")
         return previous
-    if previous and previous.get("article", {}).get("url") == latest["url"]:
-        print(f"咖啡情報：仍是同一篇（{latest['title'][:28]}），沿用")
-        return previous
+    if previous:
+        old_match = ARTICLE_RE.fullmatch(previous.get("article", {}).get("url", ""))
+        if old_match and int(old_match.group(1)) >= int(ARTICLE_RE.fullmatch(latest["url"]).group(1)):
+            _refresh_log(f"咖啡情報 -> 沒有較新文章，保留 {previous.get('updated_at', '')} 的資料")
+            return previous
 
     print(f"咖啡情報：發現新文章 {latest['title'][:40]}")
     try:
@@ -230,7 +263,10 @@ def build(previous: dict | None = None) -> dict | None:
         return previous
     data = extract(text, latest["title"])
     if not data:
+        _refresh_log("咖啡情報 -> 結構化擷取失敗，保留上一版")
         return previous          # 擷取不出來就別把舊的好資料蓋掉
+
+    _refresh_log(f"咖啡情報 -> 更新成功（{latest['url']}；{latest['title']}）")
 
     return {
         "updated_at": datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M"),
@@ -265,7 +301,7 @@ def main() -> int:
         return 0
 
     if args.list:
-        for item in _from_rss() + _from_category():
+        for item in _from_rss() + _from_category() + _from_tags():
             mark = "★" if is_coffee_deal(item["title"]) else " "
             print(f" {mark} {item['title'][:56]}")
             print(f"     {item['url']}")
