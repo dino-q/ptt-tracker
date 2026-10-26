@@ -244,3 +244,7 @@
 
 - `PTT_Assistant_DailyCache`：每日 08:30 `pythonw scripts/publish_local.py`（電池模式也跑、**錯過會補跑** StartWhenAvailable）＝本機快取＋線上資料＋push 三件一起做。詳見 `路徑相依_搬移前必讀.md`。
   - ⚠️ 2026-09-18 前這個排程跑的是 `server.py --refresh-only`（只更新本機快取）；改成 `publish_local.py` 是因為線上版的抓取從 Actions 搬回本機（PTT 封鎖 Actions 機房 IP）。`--refresh-only` 參數本身保留，手動只想更新本機快取時還能用。
+
+## App 圖示（2026-10-26）
+
+♻️ 沿用 Handler._file，_route_get 僅新增 /app.webmanifest 與 /app-icon-d2-{32,180,192,512}.png 的固定允許清單。site/ 與 web/ 的圖示及 manifest 逐檔相同。完整來源、提示及檔案清單見 docs/APP_ICONS.md。

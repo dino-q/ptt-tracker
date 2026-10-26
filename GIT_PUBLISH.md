@@ -21,3 +21,5 @@
 - `config.json`（本機設定）
 - `.venv/`、`tests/screenshots/`（產物）
 - ⚠️ `site/data/`（線上版 JSON）**2026-09-18 起改為要進 git**——見上面「改本機抓」。它是唯一從這份清單移出的項目，其餘照舊
+
+- 2026-10-26 Dino 明確授權「都可以套用上線了」：PTT D2 App 圖示、分頁與主畫面圖示設定，沿用既有 GitHub repository 與 Pages 發布流程；不另建 repository、不改可見性。LINE L1 維持本機工具。

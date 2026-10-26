@@ -1332,6 +1332,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if route in ("/", "/index.html"):
             self._file(WEB_DIR / "index.html", "text/html; charset=utf-8")
+        elif route == "/app.webmanifest":
+            self._file(WEB_DIR / "app.webmanifest", "application/manifest+json; charset=utf-8")
+        elif route in (
+            "/app-icon-d2-32.png", "/app-icon-d2-180.png",
+            "/app-icon-d2-192.png", "/app-icon-d2-512.png",
+        ):
+            self._file(WEB_DIR / route[1:], "image/png")
         elif route == "/api/meta":
             tracks = load_tracks()
             for t in tracks:
