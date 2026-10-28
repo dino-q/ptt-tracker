@@ -286,6 +286,8 @@ def merge_articles(articles: list[dict]) -> dict:
                 ch["優惠"] = offers
                 groups[key] = ch
                 channels.append(ch)
+    # App 的通路卡片與捷徑都依資料首次出現順序建立；其他通路維持原順序。
+    channels.sort(key=lambda ch: {"星巴克": 1, "85度C": 2}.get(ch["名稱"], 0))
     return {"updated_at": datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M"),
             "article": articles[0]["article"], "articles": articles,
             "活動期間": "", "通路": channels}
