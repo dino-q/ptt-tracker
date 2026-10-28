@@ -237,7 +237,7 @@
     margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 600;
     flex: 1 1 auto; min-width: 0;
   }
-  .coffee-meta { color: var(--color-ink-2); font-size: .8rem; }
+  .coffee-meta { color: var(--color-ink-2); font-size: .8rem; min-width: 0; overflow-wrap: anywhere; }
   .coffee-meta a { color: var(--color-ink-2); }
   .coffee-toggle {
     background: none; border: 1px solid var(--color-line); border-radius: var(--radius-pill);
@@ -284,7 +284,7 @@
   .coffee-block:first-of-type { margin-top: var(--space-1); }
   .coffee-block > .blk-head {
     display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
-    font-size: .78rem; color: var(--color-ink-2); margin-bottom: 2px;
+    font-size: .78rem; color: var(--color-ink-2); margin-bottom: 2px; overflow-wrap: anywhere;
   }
   /* 已結束：整塊壓灰但不刪除。用 color 而不是 opacity——
      opacity 會連帶把對比壓到 WCAG 標準以下（09-04 設計審查抓到過同樣的錯）。 */
@@ -301,12 +301,19 @@
     border-radius: var(--radius-pill); padding: 1px 8px; font-weight: 600;
   }
   .coffee-deal {
-    display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
-    font-size: .85rem; padding: 3px 0;
+    display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .8fr);
+    gap: var(--space-2); align-items: center;
+    font-size: .85rem; padding: var(--space-2) 0; line-height: 1.6;
   }
-  .coffee-deal .d-item { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-  .coffee-deal .d-rule { color: var(--color-accent); font-weight: 600; white-space: nowrap; }
-  .coffee-deal .d-price { color: var(--color-ink-2); font-size: .78rem; white-space: nowrap; }
+  .coffee-deal > span { min-width: 0; overflow-wrap: anywhere; }
+  .coffee-deal .d-item { grid-column: 1; }
+  .coffee-deal .d-rule { grid-column: 2; color: var(--color-accent); font-weight: 600; }
+  .coffee-deal .d-price { grid-column: 3; color: var(--color-ink-2); font-size: .78rem; font-variant-numeric: tabular-nums; }
+  @media (max-width: 600px) {
+    .coffee-deal { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+    .coffee-deal .d-item, .coffee-deal .d-rule, .coffee-deal .d-price { grid-column: 1; }
+    .coffee-deal + .coffee-deal { border-top: 1px solid var(--color-line); }
+  }
   /* Tor 2026-09-04 實測：opacity .7 讓對比度掉到 3.33:1（未達 WCAG AA 4.5:1）。
      刪除線本身已足夠表達「這是被取代的舊價」，不需要再靠降對比加強。 */
   .coffee-deal .d-price s { opacity: 1; }
@@ -943,14 +950,16 @@ function renderCoffee() {
   h2.textContent = "本週咖啡優惠";
   const meta = document.createElement("span");
   meta.className = "coffee-meta";
-  if (art.url) {
+  const sources = COFFEE.articles && COFFEE.articles.length
+    ? COFFEE.articles.map(s => s.article) : [art];
+  meta.append(document.createTextNode((COFFEE.updated_at || "") + "　"));
+  sources.filter(s => s && s.url).forEach((source, index) => {
     const a = document.createElement("a");
-    a.href = art.url; a.target = "_blank"; a.rel = "noopener";
-    a.textContent = art.source || "來源";
-    meta.append(document.createTextNode((COFFEE.updated_at || "") + "　"), a);
-  } else {
-    meta.textContent = COFFEE.updated_at || "";
-  }
+    a.href = source.url; a.target = "_blank"; a.rel = "noopener";
+    a.title = source.title || "";
+    a.textContent = sources.length > 1 ? `來源 ${index + 1}` : (source.source || "來源");
+    meta.append(a, document.createTextNode("　"));
+  });
   const toggle = document.createElement("button");
   toggle.className = "coffee-toggle";
   toggle.type = "button";

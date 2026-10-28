@@ -170,6 +170,15 @@
 
 ## 咖啡情報（🆕 2026-09-04）
 
+### 2026-10-28 多篇來源疊加與長文字排版
+- ♻️ 沿用 `_from_rss`／`_from_category`／`_from_tags`／`extract`／`gemini_client.generate`：`find_articles` 由原 `find_latest` 的去重與排序抽出，最多列十二篇。`find_latest` 保留相容入口。
+- 🆕 `article_document`：既有 `article_text` 不提供發稿日期，因此讀同一份公開 HTML 的 `datePublished`，僅收近 45 天，無日期略過；正文仍沿用 `article_text`，不重複下載。
+- 🆕 `merge_articles`：原 `build` 只支援單篇取代，無法保留其他品牌。保留最近十六篇原始資料於 `articles`，依名稱／管道／期間合併，只移除完全相同的優惠；統一既有常見品牌名稱。維持 `article`／`通路` 舊格式相容。
+- ♻️ `build`：舊單篇資料自動升級，追加未收錄來源，包括較舊但未收錄的綜合文；每輪至多四次抽取，逐篇失敗保留其他來源，下輪重試。已收錄網址不重複花抽取額度。
+- ♻️ `build_site.main`：線上 `coffee.json` 暫時讀不到時，改讀既有本機 `site/data/coffee.json` 繼續追加，避免失去多篇來源。
+- ♻️ `renderCoffee`：顯示多篇來源連結；桌機三欄共用起點、垂直置中，600px 以下改直排，說明與價格均可換行。
+- 驗證：`tests/test_coffee_news.py`、`tests/verify_coffee_layout.py`、既有咖啡展開與到期檢查。
+
 | 名稱 | 用途 | 備註 |
 |---|---|---|
 | `scripts/coffee_news.py` | 抓 NOWnews「本周咖啡優惠」週更專欄 → 結構化成 `site/data/coffee.json` | 🆕 新寫（不沿用 `run_task` 的原因：那是 PTT 掃描引擎，來源、解析、輸出格式全都不同） |

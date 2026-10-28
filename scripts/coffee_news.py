@@ -184,8 +184,8 @@ def _from_tags() -> list[dict]:
     return out
 
 
-def find_latest() -> dict | None:
-    """合併官方 RSS、生活分類與咖啡標籤，挑出最新咖啡優惠。"""
+def find_articles() -> list[dict]:
+    """合併官方入口，保留最近十二篇；單品牌新聞與綜合整理一起收錄。"""
     seen, merged = set(), []
     for item in _from_rss() + _from_category() + _from_tags():
         if item["url"] in seen:
@@ -193,16 +193,19 @@ def find_latest() -> dict | None:
         seen.add(item["url"])
         merged.append(item)
     hits = [i for i in merged if is_coffee_deal(i["title"])]
-    if not hits:
-        return None
     # 網址尾巴的流水號愈大愈新；RSS 有時間但分類頁沒有，用 id 排最可靠
     hits.sort(key=lambda i: int(ARTICLE_RE.match(i["url"]).group(1)), reverse=True)
-    return hits[0]
+    return hits[:12]
 
 
-def article_text(url: str) -> str:
+def find_latest() -> dict | None:
+    """保留舊查詢入口；資料建置改用多篇來源。"""
+    return next(iter(find_articles()), None)
+
+
+def article_text(url: str, raw: str | None = None) -> str:
     """把文章 HTML 轉成純文字。先抽文章區塊再去標籤，避免把導覽跟廣告餵給模型。"""
-    raw = _get(url).decode("utf-8", "ignore")
+    raw = raw if raw is not None else _get(url).decode("utf-8", "ignore")
     body = raw
     m = re.search(r'<article[^>]*>(.*?)</article>', raw, re.S | re.I)
     if m:
@@ -214,6 +217,22 @@ def article_text(url: str) -> str:
     lines = [re.sub(r"[ \t　]+", " ", ln).strip() for ln in body.splitlines()]
     lines = [ln for ln in lines if ln]
     return "\n".join(lines)[:14000]
+
+
+def article_document(url: str) -> dict | None:
+    """先核對官方發稿日期，只抽取近 45 天新聞；舊標籤不能讓去年活動復活。"""
+    raw = _get(url).decode("utf-8", "ignore")
+    match = re.search(r'"datePublished"\s*:\s*"([^"]+)"', raw)
+    if not match:
+        return None
+    try:
+        published = datetime.fromisoformat(match.group(1)).astimezone(TAIPEI)
+    except ValueError:
+        return None
+    age = datetime.now(TAIPEI) - published
+    if age < timedelta(0) or age > timedelta(days=45):
+        return None
+    return {"text": article_text(url, raw), "published": match.group(1)}
 
 
 def extract(text: str, title: str) -> dict | None:
@@ -241,41 +260,73 @@ def extract(text: str, title: str) -> dict | None:
         return None
 
 
+def merge_articles(articles: list[dict]) -> dict:
+    """保留每篇原始抽取，依通路／管道／期間合併，完全相同優惠只顯示一次。"""
+    articles = sorted(articles, key=lambda a: int(ARTICLE_RE.fullmatch(a["article"]["url"]).group(1)), reverse=True)[:16]
+    channels, groups, seen = [], {}, set()
+    for source in articles:
+        for original in source.get("通路", []):
+            ch = dict(original)
+            name = ch.get("名稱", "").strip()
+            ch["名稱"] = {"全家便利商店": "全家", "7-11": "7-ELEVEN", "統一超商": "7-ELEVEN",
+                          "85度Ｃ": "85度C", "85°C": "85度C"}.get(name, name)
+            ch["期間"] = ch.get("期間") or source.get("活動期間", "")
+            key = tuple(ch.get(k, "").strip() for k in ("名稱", "管道", "期間"))
+            offers = []
+            for offer in ch.get("優惠", []):
+                identity = (key, json.dumps(offer, sort_keys=True, ensure_ascii=False))
+                if identity not in seen:
+                    seen.add(identity)
+                    offers.append(offer)
+            if not offers:
+                continue
+            if key in groups:
+                groups[key]["優惠"].extend(offers)
+            else:
+                ch["優惠"] = offers
+                groups[key] = ch
+                channels.append(ch)
+    return {"updated_at": datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M"),
+            "article": articles[0]["article"], "articles": articles,
+            "活動期間": "", "通路": channels}
+
+
 def build(previous: dict | None = None) -> dict | None:
-    """回傳可直接寫成 coffee.json 的內容；抓不到新的就沿用舊的。"""
-    latest = find_latest()
-    if not latest:
+    """追加未收錄來源；每輪最多抽四篇，失敗來源下輪重試，舊資料保留。"""
+    candidates = find_articles()
+    if not candidates:
         _refresh_log("咖啡情報 -> 沒找到優惠文章，保留上一版；請檢查來源")
         if previous:
             print("咖啡情報：這輪沒找到新文章，沿用上一版")
         return previous
-    if previous:
-        old_match = ARTICLE_RE.fullmatch(previous.get("article", {}).get("url", ""))
-        if old_match and int(old_match.group(1)) >= int(ARTICLE_RE.fullmatch(latest["url"]).group(1)):
-            _refresh_log(f"咖啡情報 -> 沒有較新文章，保留 {previous.get('updated_at', '')} 的資料")
-            return previous
-
-    print(f"咖啡情報：發現新文章 {latest['title'][:40]}")
-    try:
-        text = article_text(latest["url"])
-    except Exception as exc:                                  # noqa: BLE001
-        print(f"咖啡情報：文章抓取失敗（{type(exc).__name__}），沿用上一版")
-        return previous
-    data = extract(text, latest["title"])
-    if not data:
-        _refresh_log("咖啡情報 -> 結構化擷取失敗，保留上一版")
-        return previous          # 擷取不出來就別把舊的好資料蓋掉
-
-    _refresh_log(f"咖啡情報 -> 更新成功（{latest['url']}；{latest['title']}）")
-
-    return {
-        "updated_at": datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M"),
-        "article": {"title": latest["title"], "url": latest["url"],
-                    "published": latest.get("published", ""),
+    articles = list((previous or {}).get("articles") or ([previous] if previous else []))
+    articles = [a for a in articles if ARTICLE_RE.fullmatch(a.get("article", {}).get("url", ""))]
+    known = {a["article"]["url"] for a in articles}
+    added, attempts = 0, 0
+    for latest in [a for a in candidates if a["url"] not in known]:
+        if attempts >= 4:
+            break
+        print(f"咖啡情報：發現未收錄文章 {latest['title'][:40]}")
+        try:
+            document = article_document(latest["url"])
+            if not document:
+                _refresh_log(f"咖啡情報 -> 超出近45天或無有效發稿日期，略過（{latest['url']}）")
+                continue
+            attempts += 1
+            data = extract(document["text"], latest["title"])
+        except Exception as exc:                              # noqa: BLE001
+            _refresh_log(f"咖啡情報 -> 讀取失敗（{latest['url']}；{type(exc).__name__}: {exc}），保留既有資料")
+            continue
+        if not data or not any(ch.get("優惠") for ch in data.get("通路", [])):
+            _refresh_log(f"咖啡情報 -> 結構化擷取失敗（{latest['url']}），保留既有資料")
+            continue
+        articles.append({"article": {"title": latest["title"], "url": latest["url"],
+                    "published": document["published"],
                     "source": "NOWnews 今日新聞"},
-        "活動期間": data.get("活動期間", ""),
-        "通路": data.get("通路", []),
-    }
+                         "活動期間": data.get("活動期間", ""), "通路": data["通路"]})
+        added += 1
+        _refresh_log(f"咖啡情報 -> 追加成功（{latest['url']}；{latest['title']}）")
+    return merge_articles(articles) if added else previous
 
 
 def main() -> int:

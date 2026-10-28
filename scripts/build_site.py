@@ -267,7 +267,16 @@ def main() -> None:
     # 咖啡那段只有「發現新文章」時才會真的呼叫，平常沿用不花額度。
     try:
         from coffee_news import build as build_coffee
-        coffee = build_coffee(fetch_old("coffee"))
+        previous_coffee = fetch_old("coffee")
+        # 線上資料短暫讀不到時，仍從本機保留的來源繼續追加。
+        # 否則下一篇單品牌新聞仍可能覆蓋掉本機完整資料。
+        local_coffee = out_dir / "coffee.json"
+        if previous_coffee is None and local_coffee.exists():
+            try:
+                previous_coffee = json.loads(local_coffee.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+        coffee = build_coffee(previous_coffee)
         if coffee:
             (out_dir / "coffee.json").write_text(
                 json.dumps(coffee, ensure_ascii=False), encoding="utf-8")
